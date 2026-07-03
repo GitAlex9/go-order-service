@@ -9,17 +9,15 @@ import (
 type Customer struct {
 	ID        string
 	Name      string
-	Email     string
 	CreatedAt time.Time
 	UpdatedAt time.Time
 }
 
-func NewCustomer(id string, name string, email string) (*Customer, error) {
+func NewCustomer(id string, name string) (*Customer, error) {
 
 	customer := &Customer{
 		ID:        id,
 		Name:      name,
-		Email:     email,
 		CreatedAt: time.Now(),
 		UpdatedAt: time.Now(),
 	}
@@ -34,10 +32,6 @@ func NewCustomer(id string, name string, email string) (*Customer, error) {
 func (c Customer) Validate() error {
 
 	if c.Name == "" {
-		return domainerrors.ErrInvalidCustomer
-	}
-
-	if c.Email == "" {
 		return domainerrors.ErrInvalidCustomer
 	}
 

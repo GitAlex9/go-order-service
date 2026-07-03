@@ -2,22 +2,70 @@ package main
 
 import (
 	"fmt"
+	"log"
 
+	"github.com/GitAlex9/go-order-service/internal/application/id"
 	entities "github.com/GitAlex9/go-order-service/internal/domain/entities"
 )
 
 func main() {
 
-	produto1, err := entities.NewProduct("1", "Notebook", "Computador de mesa portátil", 2500.00, 20)
+	generator := id.NewCounterGenerator()
+
+	productID := generator.Generate(id.ProductPrefix)
+
+	product, err := entities.NewProduct(
+		productID,
+		"Notebook",
+		"Notebook Gamer",
+		3500.00,
+		5,
+	)
+
 	if err != nil {
-		panic(err)
+		log.Fatal(err)
 	}
 
-	produto2, err := entities.NewProduct("2", "Notebook Dell", "Computador de mesa portátil", 2500.00, 20)
+	productID1 := generator.Generate(id.ProductPrefix)
+
+	product1, err := entities.NewProduct(
+		productID1,
+		"Notebook",
+		"Notebook Gamer",
+		3500.00,
+		5,
+	)
+
 	if err != nil {
-		panic(err)
+		log.Fatal(err)
 	}
 
-	fmt.Println(produto1.Name, produto2.Name)
+	customerID := generator.Generate(id.CustomerPrefix)
+
+	customer, err := entities.NewCustomer(
+		customerID,
+		"Ana",
+	)
+
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	fmt.Println("Produto criado:")
+	fmt.Printf("%+v\n\n", product)
+
+	fmt.Println("Produto criado:")
+	fmt.Printf("%+v\n\n", product1)
+
+	fmt.Println("Cliente criado:")
+	fmt.Printf("%+v\n", customer)
+
+	fmt.Println(generator.Generate(id.OrderPrefix))
+	fmt.Println(generator.Generate(id.OrderPrefix))
+	fmt.Println(generator.Generate(id.OrderPrefix))
+
+	fmt.Println(generator.Generate(id.ProductPrefix))
+	fmt.Println(generator.Generate(id.ProductPrefix))
+	fmt.Println(generator.Generate(id.ProductPrefix))
 
 }
