@@ -64,9 +64,9 @@ func main() {
 		10,
 	)
 
-	if err != nil {
-		log.Fatal(err)
-	}
+	// if err != nil {
+	// 	log.Fatal(err)
+	// }
 
 	item, err := entities.NewOrderItem(
 		product.ID,
