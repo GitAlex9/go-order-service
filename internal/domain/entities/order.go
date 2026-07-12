@@ -10,7 +10,7 @@ type Order struct {
 	ID         string
 	CustomerID string
 
-	Status OrderStatus
+	status OrderStatus
 	Items  []OrderItem
 
 	CreatedAt time.Time
@@ -22,7 +22,7 @@ func NewOrder(id string, customerID string, items []OrderItem) (*Order, error) {
 	order := &Order{
 		ID:         id,
 		CustomerID: customerID,
-		Status:     OrderStatusPending,
+		status:     OrderStatusPending,
 		Items:      items,
 		CreatedAt:  time.Now(),
 		UpdatedAt:  time.Now(),
@@ -33,6 +33,18 @@ func NewOrder(id string, customerID string, items []OrderItem) (*Order, error) {
 	}
 
 	return order, nil
+}
+
+func RebuildOrder(id string, customerID string, status OrderStatus, items []OrderItem, createdAt time.Time, updatedAt time.Time) *Order {
+
+	return &Order{
+		ID:         id,
+		CustomerID: customerID,
+		status:     status,
+		Items:      items,
+		CreatedAt:  createdAt,
+		UpdatedAt:  updatedAt,
+	}
 }
 
 func (o Order) Validate() error {
@@ -48,6 +60,15 @@ func (o Order) Validate() error {
 	return nil
 }
 
+func (o Order) Status() OrderStatus {
+	return o.status
+}
+
+func (o *Order) SetStatus(status OrderStatus) {
+	o.status = status
+	o.UpdatedAt = time.Now()
+}
+
 func (o Order) Total() float64 {
 
 	var total float64
@@ -61,24 +82,22 @@ func (o Order) Total() float64 {
 
 func (o *Order) Pay() error {
 
-	if o.Status != OrderStatusPending {
+	if o.Status() != OrderStatusPending {
 		return domainerrors.ErrInvalidStatusTransition
 	}
 
-	o.Status = OrderStatusPaid
-	o.UpdatedAt = time.Now()
+	o.SetStatus(OrderStatusPaid)
 
 	return nil
 }
 
 func (o *Order) Cancel() error {
 
-	if o.Status != OrderStatusPending {
+	if o.Status() != OrderStatusPending {
 		return domainerrors.ErrInvalidStatusTransition
 	}
 
-	o.Status = OrderStatusCanceled
-	o.UpdatedAt = time.Now()
+	o.SetStatus(OrderStatusCanceled)
 
 	return nil
 }
