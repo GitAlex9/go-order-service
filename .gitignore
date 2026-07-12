@@ -5,9 +5,11 @@ dist/
 # Test
 *.test
 coverage.out
+.env
 
 # IDE
 .vscode/
 
 # OS
 .DS_Store
+

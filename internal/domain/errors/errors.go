@@ -22,6 +22,7 @@ var (
 
 	// Customer errors
 	ErrInvalidCustomer = errors.New("invalid customer")
+	ErrInvalidEmail    = errors.New("invalid email")
 
 	// Generic validation
 	ErrInvalidQuantity = errors.New("invalid quantity")
