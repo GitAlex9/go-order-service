@@ -1,82 +1,76 @@
 package entities
 
 import (
+	"strings"
 	"time"
 
 	domainerrors "github.com/GitAlex9/go-order-service/internal/domain/errors"
+	"github.com/GitAlex9/go-order-service/internal/domain/valueobjects"
+	"github.com/google/uuid"
 )
 
 type Customer struct {
-	ID    string
-	Name  string
-	Email string
-
-	active bool
-
-	CreatedAt time.Time
-	UpdatedAt time.Time
+	id        uuid.UUID
+	name      string
+	email     valueobjects.Email
+	cpf       valueobjects.CPF
+	userID    *uuid.UUID //Vincular, no postgress, userID para o usuário.
+	createdAt time.Time
+	updatedAt time.Time
 }
 
-func NewCustomer(id, name, email string) (*Customer, error) {
-
-	customer := &Customer{
-		ID:        id,
-		Name:      name,
-		Email:     email,
-		active:    true,
-		CreatedAt: time.Now(),
-		UpdatedAt: time.Now(),
+func NewCustomer(name string, email valueobjects.Email, cpf valueobjects.CPF) (*Customer, error) {
+	name = strings.TrimSpace(name)
+	if len(name) < 3 {
+		return nil, domainerrors.ErrEmptyName
 	}
-
-	if err := customer.Validate(); err != nil {
-		return nil, err
-	}
-
-	return customer, nil
-}
-
-func RebuildCustomer(
-	id string,
-	name string,
-	email string,
-	active bool,
-	createdAt time.Time,
-	updatedAt time.Time,
-) *Customer {
-
+	now := time.Now()
 	return &Customer{
-		ID:        id,
-		Name:      name,
-		Email:     email,
-		active:    active,
-		CreatedAt: createdAt,
-		UpdatedAt: updatedAt,
+		id:        uuid.New(),
+		name:      name,
+		email:     email,
+		cpf:       cpf,
+		createdAt: now,
+		updatedAt: now,
+	}, nil
+}
+
+func RebuildCustomer(id uuid.UUID, name string, email valueobjects.Email, cpf valueobjects.CPF, userID *uuid.UUID, createdAt, updatedAt time.Time) *Customer {
+	return &Customer{
+		id:        id,
+		name:      name,
+		email:     email,
+		cpf:       cpf,
+		userID:    userID,
+		createdAt: createdAt,
+		updatedAt: updatedAt,
 	}
 }
 
-func (c Customer) Validate() error {
+func (c *Customer) ID() uuid.UUID             { return c.id }
+func (c *Customer) Name() string              { return c.name }
+func (c *Customer) Email() valueobjects.Email { return c.email }
+func (c *Customer) CPF() valueobjects.CPF     { return c.cpf }
+func (c *Customer) UserID() *uuid.UUID        { return c.userID }
+func (c *Customer) CreatedAt() time.Time      { return c.createdAt }
+func (c *Customer) UpdatedAt() time.Time      { return c.updatedAt }
 
-	if c.Name == "" {
-		return domainerrors.ErrInvalidCustomer
+func (c *Customer) ChangeEmail(newEmail valueobjects.Email) {
+	c.email = newEmail
+	c.updatedAt = time.Now()
+}
+
+func (c *Customer) Rename(newName string) error {
+	newName = strings.TrimSpace(newName)
+	if len(newName) < 3 {
+		return domainerrors.ErrEmptyName
 	}
-
-	if c.Email == "" {
-		return domainerrors.ErrInvalidEmail
-	}
-
+	c.name = newName
+	c.updatedAt = time.Now()
 	return nil
 }
 
-func (c Customer) IsActive() bool {
-	return c.active
-}
-
-func (c *Customer) Activate() {
-	c.active = true
-	c.UpdatedAt = time.Now()
-}
-
-func (c *Customer) Deactivate() {
-	c.active = false
-	c.UpdatedAt = time.Now()
+func (c *Customer) LinkUser(userID uuid.UUID) {
+	c.userID = &userID
+	c.updatedAt = time.Now()
 }

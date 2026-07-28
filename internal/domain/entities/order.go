@@ -3,101 +3,140 @@ package entities
 import (
 	"time"
 
+	"github.com/google/uuid"
+
 	domainerrors "github.com/GitAlex9/go-order-service/internal/domain/errors"
+	"github.com/GitAlex9/go-order-service/internal/domain/valueobjects"
 )
 
 type Order struct {
-	ID         string
-	CustomerID string
-
-	status OrderStatus
-	Items  []OrderItem
-
-	CreatedAt time.Time
-	UpdatedAt time.Time
+	id         uuid.UUID
+	customerID uuid.UUID
+	status     OrderStatus
+	items      []OrderItem
+	createdAt  time.Time
+	updatedAt  time.Time
 }
 
-func NewOrder(id string, customerID string, items []OrderItem) (*Order, error) {
-
+func NewOrder(customerID uuid.UUID, items []OrderItem) (*Order, error) {
+	now := time.Now()
 	order := &Order{
-		ID:         id,
-		CustomerID: customerID,
+		id:         uuid.New(),
+		customerID: customerID,
 		status:     OrderStatusPending,
-		Items:      items,
-		CreatedAt:  time.Now(),
-		UpdatedAt:  time.Now(),
+		items:      items,
+		createdAt:  now,
+		updatedAt:  now,
 	}
 
-	if err := order.Validate(); err != nil {
+	if err := order.validate(); err != nil {
 		return nil, err
 	}
 
 	return order, nil
 }
 
-func RebuildOrder(id string, customerID string, status OrderStatus, items []OrderItem, createdAt time.Time, updatedAt time.Time) *Order {
-
+func RebuildOrder(id, customerID uuid.UUID, status OrderStatus, items []OrderItem, createdAt, updatedAt time.Time) *Order {
 	return &Order{
-		ID:         id,
-		CustomerID: customerID,
+		id:         id,
+		customerID: customerID,
 		status:     status,
-		Items:      items,
-		CreatedAt:  createdAt,
-		UpdatedAt:  updatedAt,
+		items:      items,
+		createdAt:  createdAt,
+		updatedAt:  updatedAt,
 	}
 }
 
-func (o Order) Validate() error {
+func (o Order) ID() uuid.UUID         { return o.id }
+func (o Order) CustomerID() uuid.UUID { return o.customerID }
+func (o Order) Status() OrderStatus   { return o.status }
+func (o Order) Items() []OrderItem    { return o.items }
+func (o Order) CreatedAt() time.Time  { return o.createdAt }
+func (o Order) UpdatedAt() time.Time  { return o.updatedAt }
 
-	if o.CustomerID == "" {
-		return domainerrors.ErrInvalidCustomer
+func (o *Order) AddItem(item OrderItem) error {
+	if o.status != OrderStatusPending {
+		return domainerrors.ErrOrderNotEditable
 	}
 
-	if len(o.Items) == 0 {
-		return domainerrors.ErrEmptyOrder
+	for i, existing := range o.items {
+		if existing.ProductID() == item.ProductID() {
+			// já existe: soma a quantidade em vez de duplicar a linha
+			merged, err := NewOrderItem(existing.ProductID(), existing.ProductName(), existing.UnitPrice(), existing.Quantity()+item.Quantity())
+			if err != nil {
+				return err
+			}
+			o.items[i] = *merged
+			o.updatedAt = time.Now()
+			return nil
+		}
 	}
 
+	o.items = append(o.items, item)
+	o.updatedAt = time.Now()
 	return nil
 }
 
-func (o Order) Status() OrderStatus {
-	return o.status
-}
-
-func (o *Order) SetStatus(status OrderStatus) {
-	o.status = status
-	o.UpdatedAt = time.Now()
-}
-
-func (o Order) Total() float64 {
-
-	var total float64
-
-	for _, item := range o.Items {
-		total += item.Subtotal()
+func (o *Order) RemoveItem(productID uuid.UUID) error {
+	if o.status != OrderStatusPending {
+		return domainerrors.ErrOrderNotEditable
 	}
 
+	index := -1
+	for i, item := range o.items {
+		if item.ProductID() == productID {
+			index = i
+			break
+		}
+	}
+	if index == -1 {
+		return domainerrors.ErrOrderItemNotFound
+	}
+
+	o.items = append(o.items[:index], o.items[index+1:]...)
+	o.updatedAt = time.Now()
+
+	if len(o.items) == 0 {
+		return domainerrors.ErrEmptyOrder
+	}
+	return nil
+}
+
+func (o Order) Total() valueobjects.Money {
+	total := valueobjects.Zero()
+	for _, item := range o.items {
+		total = total.Add(item.Subtotal())
+	}
 	return total
 }
 
 func (o *Order) Pay() error {
-
-	if o.Status() != OrderStatusPending {
+	if !o.status.CanTransitionTo(OrderStatusPaid) {
 		return domainerrors.ErrInvalidStatusTransition
 	}
-
-	o.SetStatus(OrderStatusPaid)
-
+	o.transitionTo(OrderStatusPaid)
 	return nil
 }
 
 func (o *Order) Cancel() error {
-
-	if o.Status() != OrderStatusPending {
+	if !o.status.CanTransitionTo(OrderStatusCanceled) {
 		return domainerrors.ErrInvalidStatusTransition
 	}
+	o.transitionTo(OrderStatusCanceled)
+	return nil
+}
 
-	o.SetStatus(OrderStatusCanceled)
+func (o *Order) transitionTo(status OrderStatus) {
+	o.status = status
+	o.updatedAt = time.Now()
+}
 
+func (o Order) validate() error {
+	if o.customerID == uuid.Nil {
+		return domainerrors.ErrInvalidCustomer
+	}
+	if len(o.items) == 0 {
+		return domainerrors.ErrEmptyOrder
+	}
 	return nil
 }
