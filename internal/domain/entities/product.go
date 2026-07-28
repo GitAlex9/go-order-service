@@ -118,3 +118,25 @@ func (p Product) validate() error {
 	}
 	return nil
 }
+
+func RebuildProduct(
+	id,
+	name,
+	description string,
+	price float64,
+	stock int,
+	active bool,
+	createdAt,
+	updatedAt time.Time,
+) *Product {
+	return &Product{
+		ID:          id,
+		Name:        name,
+		Description: description,
+		Price:       price,
+		stock:       stock,
+		active:      active,
+		CreatedAt:   createdAt,
+		UpdatedAt:   updatedAt,
+	}
+}
