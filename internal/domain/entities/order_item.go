@@ -1,51 +1,64 @@
 package entities
 
-import domainerrors "github.com/GitAlex9/go-order-service/internal/domain/errors"
+import (
+	"github.com/google/uuid"
+
+	domainerrors "github.com/GitAlex9/go-order-service/internal/domain/errors"
+	"github.com/GitAlex9/go-order-service/internal/domain/valueobjects"
+)
 
 type OrderItem struct {
-	ProductID   string
-	ProductName string
-	UnitPrice   float64
-	Quantity    int
+	productID   uuid.UUID
+	productName string
+	unitPrice   valueobjects.Money
+	quantity    int
 }
 
-func NewOrderItem(productID string, productName string, unitPrice float64, quantity int) (*OrderItem, error) {
-
+func NewOrderItem(productID uuid.UUID, productName string, unitPrice valueobjects.Money, quantity int) (*OrderItem, error) {
 	item := &OrderItem{
-		ProductID:   productID,
-		ProductName: productName,
-		UnitPrice:   unitPrice,
-		Quantity:    quantity,
+		productID:   productID,
+		productName: productName,
+		unitPrice:   unitPrice,
+		quantity:    quantity,
 	}
 
-	if err := item.Validate(); err != nil {
+	if err := item.validate(); err != nil {
 		return nil, err
 	}
 
 	return item, nil
 }
 
-func (oi OrderItem) Validate() error {
-
-	if oi.ProductID == "" {
-		return domainerrors.ErrInvalidProductID
+func RebuildOrderItem(productID uuid.UUID, productName string, unitPrice valueobjects.Money, quantity int) *OrderItem {
+	return &OrderItem{
+		productID:   productID,
+		productName: productName,
+		unitPrice:   unitPrice,
+		quantity:    quantity,
 	}
-
-	if oi.ProductName == "" {
-		return domainerrors.ErrInvalidProductName
-	}
-
-	if oi.UnitPrice <= 0 {
-		return domainerrors.ErrInvalidProductPrice
-	}
-
-	if oi.Quantity <= 0 {
-		return domainerrors.ErrInvalidQuantity
-	}
-
-	return nil
 }
 
-func (oi OrderItem) Subtotal() float64 {
-	return oi.UnitPrice * float64(oi.Quantity)
+func (oi OrderItem) ProductID() uuid.UUID          { return oi.productID }
+func (oi OrderItem) ProductName() string           { return oi.productName }
+func (oi OrderItem) UnitPrice() valueobjects.Money { return oi.unitPrice }
+func (oi OrderItem) Quantity() int                 { return oi.quantity }
+
+func (oi OrderItem) Subtotal() valueobjects.Money {
+	return oi.unitPrice.Multiply(oi.quantity)
+}
+
+func (oi OrderItem) validate() error {
+	if oi.productID == uuid.Nil {
+		return domainerrors.ErrInvalidProductID
+	}
+	if oi.productName == "" {
+		return domainerrors.ErrInvalidProductName
+	}
+	if oi.unitPrice.IsZero() {
+		return domainerrors.ErrInvalidProductPrice
+	}
+	if oi.quantity <= 0 {
+		return domainerrors.ErrInvalidQuantity
+	}
+	return nil
 }

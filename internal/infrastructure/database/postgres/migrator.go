@@ -23,6 +23,7 @@ func (m *Migrator) Migrate() error {
 		name  string
 		query string
 	}{
+		{"users", createUsersTable},
 		{"products", createProductsTable},
 		{"customers", createCustomersTable},
 		{"orders", createOrdersTable},
@@ -47,37 +48,50 @@ func (m *Migrator) Migrate() error {
 	return nil
 }
 
+const createUsersTable = `
+CREATE TABLE IF NOT EXISTS users (
+	id UUID PRIMARY KEY,
+	email VARCHAR(255) NOT NULL UNIQUE,
+	password_hash VARCHAR(255) NOT NULL,
+	role VARCHAR(20) NOT NULL,
+	active BOOLEAN NOT NULL DEFAULT TRUE,
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+`
+
 const createProductsTable = `
 CREATE TABLE IF NOT EXISTS products (
-	id VARCHAR(20) PRIMARY KEY,
+	id UUID PRIMARY KEY,
 	name VARCHAR(255) NOT NULL,
 	description TEXT NOT NULL,
-	price NUMERIC(10,2) NOT NULL,
-	stock INTEGER NOT NULL,
+	price_cents BIGINT NOT NULL CHECK (price_cents >= 0),
+	stock INTEGER NOT NULL CHECK (stock >= 0),
 	active BOOLEAN NOT NULL DEFAULT TRUE,
-	created_at TIMESTAMP NOT NULL,
-	updated_at TIMESTAMP NOT NULL
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 `
 
 const createCustomersTable = `
 CREATE TABLE IF NOT EXISTS customers (
-	id VARCHAR(20) PRIMARY KEY,
+	id UUID PRIMARY KEY,
 	name VARCHAR(255) NOT NULL,
 	email VARCHAR(255) NOT NULL UNIQUE,
-	active BOOLEAN NOT NULL DEFAULT TRUE,
-	created_at TIMESTAMP NOT NULL,
-	updated_at TIMESTAMP NOT NULL
+	cpf VARCHAR(11) NOT NULL UNIQUE,
+	user_id UUID REFERENCES users(id),
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 `
 
 const createOrdersTable = `
 CREATE TABLE IF NOT EXISTS orders (
-	id VARCHAR(20) PRIMARY KEY,
-	customer_id VARCHAR(20) NOT NULL,
+	id UUID PRIMARY KEY,
+	customer_id UUID NOT NULL,
 	status VARCHAR(20) NOT NULL,
-	created_at TIMESTAMP NOT NULL,
-	updated_at TIMESTAMP NOT NULL,
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
 
 	CONSTRAINT fk_orders_customer
 		FOREIGN KEY (customer_id)
@@ -87,11 +101,11 @@ CREATE TABLE IF NOT EXISTS orders (
 
 const createOrderItemsTable = `
 CREATE TABLE IF NOT EXISTS order_items (
-	order_id VARCHAR(20) NOT NULL,
-	product_id VARCHAR(20) NOT NULL,
+	order_id UUID NOT NULL,
+	product_id UUID NOT NULL,
 	product_name VARCHAR(255) NOT NULL,
-	unit_price NUMERIC(10,2) NOT NULL,
-	quantity INTEGER NOT NULL,
+	unit_price_cents BIGINT NOT NULL CHECK (unit_price_cents >= 0),
+	quantity INTEGER NOT NULL CHECK (quantity > 0),
 
 	PRIMARY KEY (order_id, product_id),
 

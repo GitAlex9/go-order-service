@@ -3,240 +3,136 @@ package postgres
 import (
 	"context"
 	"errors"
-	"fmt"
 	"time"
 
 	"github.com/GitAlex9/go-order-service/internal/domain/entities"
+	domainerrors "github.com/GitAlex9/go-order-service/internal/domain/errors"
 	"github.com/GitAlex9/go-order-service/internal/domain/repositories"
-
+	"github.com/GitAlex9/go-order-service/internal/domain/valueobjects"
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-var _ repositories.ProductRepository = (*ProductRepositoryPostgres)(nil)
+var _ repositories.ProductRepository = (*ProductRepository)(nil)
 
-type ProductRepositoryPostgres struct {
+type ProductRepository struct {
 	pool *pgxpool.Pool
 }
 
-func NewProductRepository(pool *pgxpool.Pool) *ProductRepositoryPostgres {
-	return &ProductRepositoryPostgres{
-		pool: pool,
-	}
+func NewProductRepository(pool *pgxpool.Pool) *ProductRepository {
+	return &ProductRepository{pool: pool}
 }
 
-func (r *ProductRepositoryPostgres) Save(product *entities.Product) error {
+type productRow struct {
+	ID          uuid.UUID
+	Name        string
+	Description string
+	PriceCents  int64
+	Stock       int
+	Active      bool
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
+}
 
-	query := `
-		INSERT INTO products
-		(
-			id,
-			name,
-			description,
-			price,
-			stock,
-			active,
-			created_at,
-			updated_at
-		)
-		VALUES
-		(
-			$1,$2,$3,$4,$5,$6,$7,$8
-		)
+func (r *ProductRepository) Save(ctx context.Context, product *entities.Product) error {
+	const query = `
+		INSERT INTO products (id, name, description, price_cents, stock, active, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		ON CONFLICT (id) DO UPDATE SET
+			name = EXCLUDED.name,
+			description = EXCLUDED.description,
+			price_cents = EXCLUDED.price_cents,
+			stock = EXCLUDED.stock,
+			active = EXCLUDED.active,
+			updated_at = EXCLUDED.updated_at
 	`
-
-	_, err := r.pool.Exec(
-		context.Background(),
-		query,
-		product.ID,
-		product.Name,
-		product.Description,
-		product.Price,
+	_, err := r.pool.Exec(ctx, query,
+		product.ID(),
+		product.Name(),
+		product.Description(),
+		product.Price().Cents(),
 		product.Stock(),
 		product.IsActive(),
-		product.CreatedAt,
-		product.UpdatedAt,
+		product.CreatedAt(),
+		product.UpdatedAt(),
 	)
-
 	if err != nil {
-		return fmt.Errorf("saving product: %w", err)
+		return err
 	}
-	return err
+	return nil
 }
 
-func (r *ProductRepositoryPostgres) FindByID(id string) (*entities.Product, error) {
-
-	query := `
-		SELECT
-			id,
-			name,
-			description,
-			price,
-			stock,
-			active,
-			created_at,
-			updated_at
-		FROM products
-		WHERE id = $1
+func (r *ProductRepository) FindByID(ctx context.Context, id uuid.UUID) (*entities.Product, error) {
+	const query = `
+		SELECT id, name, description, price_cents, stock, active, created_at, updated_at
+		FROM products WHERE id = $1
 	`
-
-	var (
-		productID   string
-		name        string
-		description string
-		price       float64
-		stock       int
-		active      bool
-		createdAt   time.Time
-		updatedAt   time.Time
-	)
-
-	err := r.pool.QueryRow(
-		context.Background(),
-		query,
-		id,
-	).Scan(
-		&productID,
-		&name,
-		&description,
-		&price,
-		&stock,
-		&active,
-		&createdAt,
-		&updatedAt,
-	)
-
-	if err != nil {
-
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, nil
-		}
-
-		return nil, err
-	}
-
-	product := entities.RebuildProduct(
-		productID,
-		name,
-		description,
-		price,
-		stock,
-		active,
-		createdAt,
-		updatedAt,
-	)
-
-	return product, nil
+	row := r.pool.QueryRow(ctx, query, id)
+	return scanProduct(row)
 }
 
-func (r *ProductRepositoryPostgres) List() ([]*entities.Product, error) {
-	query := `
-		SELECT
-			id,
-			name,
-			description,
-			price,
-			stock,
-			active,
-			created_at,
-			updated_at
-		FROM products
-		ORDER BY created_at DESC
+func (r *ProductRepository) List(ctx context.Context, offset, limit int) ([]*entities.Product, error) {
+	const query = `
+		SELECT id, name, description, price_cents, stock, active, created_at, updated_at
+		FROM products ORDER BY created_at DESC OFFSET $1 LIMIT $2
 	`
-
-	rows, err := r.pool.Query(context.Background(), query)
-
+	rows, err := r.pool.Query(ctx, query, offset, limit)
 	if err != nil {
 		return nil, err
 	}
-
 	defer rows.Close()
 
-	var products []*entities.Product
-
+	products := make([]*entities.Product, 0)
 	for rows.Next() {
-
-		var (
-			id          string
-			name        string
-			description string
-			price       float64
-			stock       int
-			active      bool
-			createdAt   time.Time
-			updatedAt   time.Time
-		)
-
-		err := rows.Scan(
-			&id,
-			&name,
-			&description,
-			&price,
-			&stock,
-			&active,
-			&createdAt,
-			&updatedAt,
-		)
-
+		var pr productRow
+		if err := rows.Scan(&pr.ID, &pr.Name, &pr.Description, &pr.PriceCents, &pr.Stock, &pr.Active, &pr.CreatedAt, &pr.UpdatedAt); err != nil {
+			return nil, err
+		}
+		product, err := productToDomain(pr)
 		if err != nil {
 			return nil, err
 		}
-
-		product := entities.RebuildProduct(
-			id,
-			name,
-			description,
-			price,
-			stock,
-			active,
-			createdAt,
-			updatedAt,
-		)
-
 		products = append(products, product)
 	}
+	return products, rows.Err()
+}
 
-	if err := rows.Err(); err != nil {
+func (r *ProductRepository) Exists(ctx context.Context, id uuid.UUID) (bool, error) {
+	const query = `SELECT EXISTS(SELECT 1 FROM products WHERE id = $1)`
+	var exists bool
+	err := r.pool.QueryRow(ctx, query, id).Scan(&exists)
+	return exists, err
+}
+
+func (r *ProductRepository) Delete(ctx context.Context, id uuid.UUID) error {
+	const query = `DELETE FROM products WHERE id = $1`
+	tag, err := r.pool.Exec(ctx, query, id)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return domainerrors.ErrNotFound
+	}
+	return nil
+}
+
+func scanProduct(row pgx.Row) (*entities.Product, error) {
+	var pr productRow
+	err := row.Scan(&pr.ID, &pr.Name, &pr.Description, &pr.PriceCents, &pr.Stock, &pr.Active, &pr.CreatedAt, &pr.UpdatedAt)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, domainerrors.ErrNotFound
+		}
 		return nil, err
 	}
-
-	return products, nil
+	return productToDomain(pr)
 }
 
-func (r *ProductRepositoryPostgres) Exists(id string) (bool, error) {
-
-	query := `
-		SELECT EXISTS(
-			SELECT 1
-			FROM products
-			WHERE id = $1
-		)
-	`
-
-	var exists bool
-
-	err := r.pool.QueryRow(context.Background(), query, id).Scan(&exists)
-
+func productToDomain(pr productRow) (*entities.Product, error) {
+	price, err := valueobjects.NewMoney(pr.PriceCents)
 	if err != nil {
-		return false, err
+		return nil, err
 	}
-
-	return exists, nil
-}
-
-func (r *ProductRepositoryPostgres) Delete(id string) error {
-
-	query := `
-		DELETE
-		FROM products
-		WHERE id = $1
-	`
-
-	_, err := r.pool.Exec(
-		context.Background(),
-		query,
-		id,
-	)
-
-	return err
+	return entities.RebuildProduct(pr.ID, pr.Name, pr.Description, price, pr.Stock, pr.Active, pr.CreatedAt, pr.UpdatedAt), nil
 }

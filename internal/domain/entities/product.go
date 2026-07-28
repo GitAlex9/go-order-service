@@ -3,131 +3,118 @@ package entities
 import (
 	"time"
 
+	"github.com/google/uuid"
+
 	domainerrors "github.com/GitAlex9/go-order-service/internal/domain/errors"
+	"github.com/GitAlex9/go-order-service/internal/domain/valueobjects"
 )
 
 type Product struct {
-	ID          string
-	Name        string
-	Description string
-	Price       float64
-
-	stock  int
-	active bool
-
-	CreatedAt time.Time
-	UpdatedAt time.Time
+	id          uuid.UUID
+	name        string
+	description string
+	price       valueobjects.Money
+	stock       int
+	active      bool
+	createdAt   time.Time
+	updatedAt   time.Time
 }
 
-func NewProduct(id, name, description string, price float64, stock int) (*Product, error) {
-
+func NewProduct(name, description string, price valueobjects.Money, stock int) (*Product, error) {
 	product := &Product{
-		ID:          id,
-		Name:        name,
-		Description: description,
-		Price:       price,
+		id:          uuid.New(),
+		name:        name,
+		description: description,
+		price:       price,
 		stock:       stock,
 		active:      true,
-		CreatedAt:   time.Now(),
-		UpdatedAt:   time.Now(),
+		createdAt:   time.Now(),
+		updatedAt:   time.Now(),
 	}
 
-	if err := product.Validate(); err != nil {
+	if err := product.validate(); err != nil {
 		return nil, err
 	}
 
 	return product, nil
 }
 
-func (p Product) Validate() error {
-
-	if p.Name == "" {
-		return domainerrors.ErrInvalidProductName
+func RebuildProduct(
+	id uuid.UUID,
+	name, description string,
+	price valueobjects.Money,
+	stock int,
+	active bool,
+	createdAt, updatedAt time.Time,
+) *Product {
+	return &Product{
+		id:          id,
+		name:        name,
+		description: description,
+		price:       price,
+		stock:       stock,
+		active:      active,
+		createdAt:   createdAt,
+		updatedAt:   updatedAt,
 	}
-
-	if p.Description == "" {
-		return domainerrors.ErrInvalidProductDescription
-	}
-
-	if p.Price <= 0 {
-		return domainerrors.ErrInvalidProductPrice
-	}
-
-	if p.stock < 0 {
-		return domainerrors.ErrInvalidProductStock
-	}
-
-	return nil
 }
 
-func (p Product) Stock() int {
-	return p.stock
-}
-
-func (p Product) IsActive() bool {
-	return p.active
-}
+func (p Product) ID() uuid.UUID             { return p.id }
+func (p Product) Name() string              { return p.name }
+func (p Product) Description() string       { return p.description }
+func (p Product) Price() valueobjects.Money { return p.price }
+func (p Product) Stock() int                { return p.stock }
+func (p Product) IsActive() bool            { return p.active }
+func (p Product) CreatedAt() time.Time      { return p.createdAt }
+func (p Product) UpdatedAt() time.Time      { return p.updatedAt }
 
 func (p Product) HasStock(quantity int) bool {
 	return p.stock >= quantity
 }
 
 func (p *Product) IncreaseStock(quantity int) error {
-
 	if quantity <= 0 {
 		return domainerrors.ErrInvalidQuantity
 	}
-
 	p.stock += quantity
-	p.UpdatedAt = time.Now()
-
+	p.updatedAt = time.Now()
 	return nil
 }
 
 func (p *Product) DecreaseStock(quantity int) error {
-
 	if quantity <= 0 {
 		return domainerrors.ErrInvalidQuantity
 	}
-
 	if !p.HasStock(quantity) {
 		return domainerrors.ErrInsufficientStock
 	}
-
 	p.stock -= quantity
-	p.UpdatedAt = time.Now()
-
+	p.updatedAt = time.Now()
 	return nil
 }
 
 func (p *Product) Activate() {
 	p.active = true
-	p.UpdatedAt = time.Now()
+	p.updatedAt = time.Now()
 }
 
 func (p *Product) Deactivate() {
 	p.active = false
-	p.UpdatedAt = time.Now()
+	p.updatedAt = time.Now()
 }
 
-func RebuildProduct(
-	id,
-	name,
-	description string,
-	price float64,
-	stock int,
-	active bool,
-	createdAt,
-	updatedAt time.Time,
-) *Product {
-	return &Product{
-		ID:          id,
-		Name:        name,
-		Description: description,
-		Price:       price,
-		stock:       stock,
-		active:      active,
-		CreatedAt:   createdAt,
-		UpdatedAt:   updatedAt,
+func (p Product) validate() error {
+	if p.name == "" {
+		return domainerrors.ErrInvalidProductName
 	}
+	if p.description == "" {
+		return domainerrors.ErrInvalidProductDescription
+	}
+	if p.price.IsZero() {
+		return domainerrors.ErrInvalidProductPrice
+	}
+	if p.stock < 0 {
+		return domainerrors.ErrInvalidProductStock
+	}
+	return nil
 }
