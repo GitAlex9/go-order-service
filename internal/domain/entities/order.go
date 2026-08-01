@@ -6,6 +6,7 @@ import (
 	"github.com/google/uuid"
 
 	domainerrors "github.com/GitAlex9/go-order-service/internal/domain/errors"
+	"github.com/GitAlex9/go-order-service/internal/domain/events"
 	"github.com/GitAlex9/go-order-service/internal/domain/valueobjects"
 )
 
@@ -16,6 +17,7 @@ type Order struct {
 	items      []OrderItem
 	createdAt  time.Time
 	updatedAt  time.Time
+	events     []interface{}
 }
 
 func NewOrder(customerID uuid.UUID, items []OrderItem) (*Order, error) {
@@ -27,6 +29,7 @@ func NewOrder(customerID uuid.UUID, items []OrderItem) (*Order, error) {
 		items:      items,
 		createdAt:  now,
 		updatedAt:  now,
+		events:     []interface{}{},
 	}
 
 	if err := order.validate(); err != nil {
@@ -44,6 +47,7 @@ func RebuildOrder(id, customerID uuid.UUID, status OrderStatus, items []OrderIte
 		items:      items,
 		createdAt:  createdAt,
 		updatedAt:  updatedAt,
+		events:     []interface{}{},
 	}
 }
 
@@ -53,6 +57,19 @@ func (o Order) Status() OrderStatus   { return o.status }
 func (o Order) Items() []OrderItem    { return o.items }
 func (o Order) CreatedAt() time.Time  { return o.createdAt }
 func (o Order) UpdatedAt() time.Time  { return o.updatedAt }
+
+// Event handling methods
+func (o *Order) AddEvent(event interface{}) {
+	o.events = append(o.events, event)
+}
+
+func (o *Order) Events() []interface{} {
+	return o.events
+}
+
+func (o *Order) ClearEvents() {
+	o.events = []interface{}{}
+}
 
 func (o *Order) AddItem(item OrderItem) error {
 	if o.status != OrderStatusPending {
@@ -115,6 +132,11 @@ func (o *Order) Pay() error {
 		return domainerrors.ErrInvalidStatusTransition
 	}
 	o.transitionTo(OrderStatusPaid)
+	o.AddEvent(events.OrderPaidEvent{
+		OrderID:    o.id,
+		CustomerID: o.customerID,
+		Total:      o.Total(),
+	})
 	return nil
 }
 
@@ -123,6 +145,7 @@ func (o *Order) Cancel() error {
 		return domainerrors.ErrInvalidStatusTransition
 	}
 	o.transitionTo(OrderStatusCanceled)
+	o.AddEvent(events.OrderCanceledEvent{OrderID: o.id})
 	return nil
 }
 
