@@ -61,7 +61,7 @@ func validateStrength(plain string) error {
 		errs = append(errs, domainerrors.ErrPasswordNoLower)
 	}
 	if !hasDigit {
-		errs = append(errs, domainerrors.ErrPasswordNoSpecial)
+		errs = append(errs, domainerrors.ErrPasswordNoNumber)
 	}
 	if !hasSymbol {
 		errs = append(errs, domainerrors.ErrPasswordNoSpecial)

@@ -12,6 +12,7 @@ import (
 	"github.com/GitAlex9/go-order-service/internal/domain/valueobjects"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -42,10 +43,9 @@ func (r *CustomerRepository) Save(ctx context.Context, customer *entities.Custom
 		ON CONFLICT (id) DO UPDATE SET
 			name = EXCLUDED.name,
 			email = EXCLUDED.email,
-			cpf = EXCLUDED.cpf, 
+			cpf = EXCLUDED.cpf,
 			user_id = EXCLUDED.user_id,
 			updated_at = EXCLUDED.updated_at
-
 	`
 	_, err := r.pool.Exec(ctx, query,
 		customer.ID(),
@@ -57,6 +57,10 @@ func (r *CustomerRepository) Save(ctx context.Context, customer *entities.Custom
 		customer.UpdatedAt(),
 	)
 	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+			return domainerrors.ErrDuplicateCustomer
+		}
 		return err
 	}
 	return nil

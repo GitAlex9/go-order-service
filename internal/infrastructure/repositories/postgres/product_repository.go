@@ -11,6 +11,7 @@ import (
 	"github.com/GitAlex9/go-order-service/internal/domain/valueobjects"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -109,6 +110,10 @@ func (r *ProductRepository) Delete(ctx context.Context, id uuid.UUID) error {
 	const query = `DELETE FROM products WHERE id = $1`
 	tag, err := r.pool.Exec(ctx, query, id)
 	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23503" {
+			return domainerrors.ErrProductInUse
+		}
 		return err
 	}
 	if tag.RowsAffected() == 0 {

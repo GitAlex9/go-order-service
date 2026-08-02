@@ -6,6 +6,7 @@ require github.com/jackc/pgx/v5 v5.10.0
 
 require (
 	github.com/gofrs/uuid v4.4.0+incompatible // indirect
+	github.com/golang-jwt/jwt/v5 v5.3.1 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 )
 
