@@ -13,17 +13,16 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 var _ repositories.CustomerRepository = (*CustomerRepository)(nil)
 
 type CustomerRepository struct {
-	pool *pgxpool.Pool
+	db DBTX
 }
 
-func NewCustomerRepository(pool *pgxpool.Pool) *CustomerRepository {
-	return &CustomerRepository{pool: pool}
+func NewCustomerRepository(db DBTX) *CustomerRepository {
+	return &CustomerRepository{db: db}
 }
 
 type customerRow struct {
@@ -47,7 +46,7 @@ func (r *CustomerRepository) Save(ctx context.Context, customer *entities.Custom
 			user_id = EXCLUDED.user_id,
 			updated_at = EXCLUDED.updated_at
 	`
-	_, err := r.pool.Exec(ctx, query,
+	_, err := r.db.Exec(ctx, query,
 		customer.ID(),
 		customer.Name(),
 		customer.Email().String(),
@@ -72,7 +71,7 @@ func (r *CustomerRepository) FindByID(ctx context.Context, id uuid.UUID) (*entit
 		FROM customers
 		WHERE id = $1
 	`
-	row := r.pool.QueryRow(ctx, query, id)
+	row := r.db.QueryRow(ctx, query, id)
 	return scanCustomer(row)
 
 }
@@ -83,7 +82,7 @@ func (r *CustomerRepository) FindByEmail(ctx context.Context, email valueobjects
 		FROM customers
 		WHERE email = $1
 	`
-	row := r.pool.QueryRow(ctx, query, email.String())
+	row := r.db.QueryRow(ctx, query, email.String())
 	return scanCustomer(row)
 }
 
@@ -95,7 +94,7 @@ func (r *CustomerRepository) List(ctx context.Context, offset, limit int) ([]*en
 		OFFSET $1 LIMIT $2
 	`
 
-	rows, err := r.pool.Query(ctx, query, offset, limit)
+	rows, err := r.db.Query(ctx, query, offset, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -122,7 +121,7 @@ func (r *CustomerRepository) List(ctx context.Context, offset, limit int) ([]*en
 func (r *CustomerRepository) Exists(ctx context.Context, id uuid.UUID) (bool, error) {
 	const query = `SELECT EXISTS(SELECT 1 FROM customers WHERE id = $1)`
 	var exists bool
-	if err := r.pool.QueryRow(ctx, query, id).Scan(&exists); err != nil {
+	if err := r.db.QueryRow(ctx, query, id).Scan(&exists); err != nil {
 		return false, err
 	}
 	return exists, nil
@@ -130,7 +129,7 @@ func (r *CustomerRepository) Exists(ctx context.Context, id uuid.UUID) (bool, er
 
 func (r *CustomerRepository) Delete(ctx context.Context, id uuid.UUID) error {
 	const query = `DELETE FROM customers WHERE id = $1`
-	tag, err := r.pool.Exec(ctx, query, id)
+	tag, err := r.db.Exec(ctx, query, id)
 	if err != nil {
 		return err
 	}
