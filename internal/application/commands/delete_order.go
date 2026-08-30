@@ -5,28 +5,28 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/GitAlex9/go-order-service/internal/application/contracts"
 	"github.com/GitAlex9/go-order-service/internal/domain/entities"
 	domainerrors "github.com/GitAlex9/go-order-service/internal/domain/errors"
-	"github.com/GitAlex9/go-order-service/internal/domain/repositories"
 )
 
 type DeleteOrderHandler struct {
-	repo repositories.OrderRepository
+	uow contracts.UnitOfWork
 }
 
-func NewDeleteOrderHandler(repo repositories.OrderRepository) *DeleteOrderHandler {
-	return &DeleteOrderHandler{repo: repo}
+func NewDeleteOrderHandler(uow contracts.UnitOfWork) *DeleteOrderHandler {
+	return &DeleteOrderHandler{uow: uow}
 }
 
 func (h *DeleteOrderHandler) Handle(ctx context.Context, id uuid.UUID) error {
-	order, err := h.repo.FindByID(ctx, id)
-	if err != nil {
-		return err
-	}
-
-	if order.Status() == entities.OrderStatusPaid {
-		return domainerrors.ErrOrderNotDeletable
-	}
-
-	return h.repo.Delete(ctx, id)
+	return h.uow.Execute(ctx, func(repos contracts.Repositories) error {
+		order, err := repos.Order.FindByID(ctx, id)
+		if err != nil {
+			return err
+		}
+		if order.Status() == entities.OrderStatusPaid {
+			return domainerrors.ErrOrderNotDeletable
+		}
+		return repos.Order.Delete(ctx, id)
+	})
 }

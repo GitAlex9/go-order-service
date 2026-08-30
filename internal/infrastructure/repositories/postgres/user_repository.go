@@ -12,17 +12,16 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 var _ repositories.UserRepository = (*UserRepository)(nil)
 
 type UserRepository struct {
-	pool *pgxpool.Pool
+	db DBTX
 }
 
-func NewUserRepository(pool *pgxpool.Pool) *UserRepository {
-	return &UserRepository{pool: pool}
+func NewUserRepository(db DBTX) *UserRepository {
+	return &UserRepository{db: db}
 }
 
 type userRow struct {
@@ -46,7 +45,7 @@ func (r *UserRepository) Save(ctx context.Context, user *entities.User) error {
 			active = EXCLUDED.active,
 			updated_at = EXCLUDED.updated_at
 	`
-	_, err := r.pool.Exec(ctx, query,
+	_, err := r.db.Exec(ctx, query,
 		user.ID(),
 		user.Email().String(),
 		user.PasswordHash(),
@@ -71,7 +70,7 @@ func (r *UserRepository) FindByID(ctx context.Context, id uuid.UUID) (*entities.
 		FROM users
 		WHERE id = $1
 	`
-	row := r.pool.QueryRow(ctx, query, id)
+	row := r.db.QueryRow(ctx, query, id)
 	return scanUser(row)
 }
 
@@ -81,7 +80,7 @@ func (r *UserRepository) FindByEmail(ctx context.Context, email valueobjects.Ema
 		FROM users
 		WHERE email = $1
 	`
-	row := r.pool.QueryRow(ctx, query, email.String())
+	row := r.db.QueryRow(ctx, query, email.String())
 	return scanUser(row)
 }
 
@@ -93,7 +92,7 @@ func (r *UserRepository) List(ctx context.Context, offset, limit int) ([]*entiti
 		OFFSET $1 LIMIT $2
 	`
 
-	rows, err := r.pool.Query(ctx, query, offset, limit)
+	rows, err := r.db.Query(ctx, query, offset, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -120,7 +119,7 @@ func (r *UserRepository) List(ctx context.Context, offset, limit int) ([]*entiti
 func (r *UserRepository) Exists(ctx context.Context, id uuid.UUID) (bool, error) {
 	const query = `SELECT EXISTS(SELECT 1 FROM users WHERE id = $1)`
 	var exists bool
-	if err := r.pool.QueryRow(ctx, query, id).Scan(&exists); err != nil {
+	if err := r.db.QueryRow(ctx, query, id).Scan(&exists); err != nil {
 		return false, err
 	}
 	return exists, nil
@@ -128,7 +127,7 @@ func (r *UserRepository) Exists(ctx context.Context, id uuid.UUID) (bool, error)
 
 func (r *UserRepository) Delete(ctx context.Context, id uuid.UUID) error {
 	const query = `DELETE FROM users WHERE id = $1`
-	tag, err := r.pool.Exec(ctx, query, id)
+	tag, err := r.db.Exec(ctx, query, id)
 	if err != nil {
 		return err
 	}

@@ -7,15 +7,17 @@ import (
 
 	"github.com/GitAlex9/go-order-service/internal/application/dto"
 	"github.com/GitAlex9/go-order-service/internal/application/mapper"
+	domainevents "github.com/GitAlex9/go-order-service/internal/domain/events"
 	"github.com/GitAlex9/go-order-service/internal/domain/repositories"
 )
 
 type ActivateUserHandler struct {
-	repo repositories.UserRepository
+	repo       repositories.UserRepository
+	dispatcher domainevents.Dispatcher
 }
 
-func NewActivateUserHandler(repo repositories.UserRepository) *ActivateUserHandler {
-	return &ActivateUserHandler{repo: repo}
+func NewActivateUserHandler(repo repositories.UserRepository, dispatcher domainevents.Dispatcher) *ActivateUserHandler {
+	return &ActivateUserHandler{repo: repo, dispatcher: dispatcher}
 }
 
 func (h *ActivateUserHandler) Handle(ctx context.Context, id uuid.UUID) (*dto.UserResponse, error) {
@@ -27,16 +29,21 @@ func (h *ActivateUserHandler) Handle(ctx context.Context, id uuid.UUID) (*dto.Us
 	if err := h.repo.Save(ctx, user); err != nil {
 		return nil, err
 	}
+
+	h.dispatcher.Dispatch(ctx, user.Events())
+	user.ClearEvents()
+
 	response := mapper.UserToResponse(user)
 	return &response, nil
 }
 
 type DeactivateUserHandler struct {
-	repo repositories.UserRepository
+	repo       repositories.UserRepository
+	dispatcher domainevents.Dispatcher
 }
 
-func NewDeactivateUserHandler(repo repositories.UserRepository) *DeactivateUserHandler {
-	return &DeactivateUserHandler{repo: repo}
+func NewDeactivateUserHandler(repo repositories.UserRepository, dispatcher domainevents.Dispatcher) *DeactivateUserHandler {
+	return &DeactivateUserHandler{repo: repo, dispatcher: dispatcher}
 }
 
 func (h *DeactivateUserHandler) Handle(ctx context.Context, id uuid.UUID) (*dto.UserResponse, error) {
@@ -48,6 +55,10 @@ func (h *DeactivateUserHandler) Handle(ctx context.Context, id uuid.UUID) (*dto.
 	if err := h.repo.Save(ctx, user); err != nil {
 		return nil, err
 	}
+
+	h.dispatcher.Dispatch(ctx, user.Events())
+	user.ClearEvents()
+
 	response := mapper.UserToResponse(user)
 	return &response, nil
 }

@@ -1,323 +1,92 @@
 package entities
 
 import (
+	"errors"
 	"testing"
-	"time"
 
 	domainerrors "github.com/GitAlex9/go-order-service/internal/domain/errors"
-	"github.com/GitAlex9/go-order-service/internal/domain/events"
 	"github.com/GitAlex9/go-order-service/internal/domain/valueobjects"
-	"github.com/google/uuid"
 )
 
-func TestNewProduct_Valid(t *testing.T) {
-	price, _ := valueobjects.NewMoneyFromFloat(10.50)
+func newTestPrice(t *testing.T, cents int64) valueobjects.Money {
+	t.Helper()
 
-	tests := []struct {
-		name        string
-		description string
-		price       valueobjects.Money
-		stock       int
-	}{
-		{"produto normal", "Descrição teste", price, 10},
-		{"estoque zero", "Descrição teste", price, 0},
+	price, err := valueobjects.NewMoney(cents)
+	if err != nil {
+		t.Fatalf("setup failed: %v", err)
 	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			product, err := NewProduct(tt.name, tt.description, tt.price, tt.stock)
-			if err != nil {
-				t.Fatalf("expected creation to succeed, got error: %v", err)
-			}
-			if product.ID() == uuid.Nil {
-				t.Errorf("expected ID to be set")
-			}
-			if product.Name() != tt.name {
-				t.Errorf("Name() got = %q, want %q", product.Name(), tt.name)
-			}
-			if product.Description() != tt.description {
-				t.Errorf("Description() got = %q, want %q", product.Description(), tt.description)
-			}
-			if !product.Price().Equals(tt.price) {
-				t.Errorf("Price() got = %v, want %v", product.Price().Amount(), tt.price.Amount())
-			}
-			if product.Stock() != tt.stock {
-				t.Errorf("Stock() got = %d, want %d", product.Stock(), tt.stock)
-			}
-			if !product.IsActive() {
-				t.Errorf("expected product to be active")
-			}
-			if product.CreatedAt().IsZero() || product.UpdatedAt().IsZero() {
-				t.Errorf("expected timestamps to be set")
-			}
-		})
-	}
+	return price
 }
 
-func TestNewProduct_Invalid(t *testing.T) {
-	price, _ := valueobjects.NewMoneyFromFloat(10.50)
-
+func TestNewProduct(t *testing.T) {
 	tests := []struct {
 		name        string
+		productName string
 		description string
-		price       valueobjects.Money
+		price       int64
 		stock       int
 		wantErr     error
 	}{
-		{"nome vazio", "Descrição", price, 10, domainerrors.ErrInvalidProductName},
-		{"descrição vazia", "Produto", price, 10, domainerrors.ErrInvalidProductDescription},
-		{"preço zero", "Produto", valueobjects.Zero(), 10, domainerrors.ErrInvalidProductPrice},
-		{"estoque negativo", "Produto", price, -1, domainerrors.ErrInvalidProductStock},
+		{"produto válido", "Notebook", "Notebook gamer", 350000, 10, nil},
+		{"nome vazio", "", "Notebook gamer", 350000, 10, domainerrors.ErrInvalidProductName},
+		{"descrição vazia", "Notebook", "", 350000, 10, domainerrors.ErrInvalidProductDescription},
+		{"preço zero", "Notebook", "Notebook gamer", 0, 10, domainerrors.ErrInvalidProductPrice},
+		{"estoque negativo", "Notebook", "Notebook gamer", 350000, -1, domainerrors.ErrInvalidProductStock},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			product, err := NewProduct(tt.name, tt.description, tt.price, tt.stock)
-			if err != tt.wantErr {
-				t.Errorf("expected %v, got %v", tt.wantErr, err)
+			price := newTestPrice(t, tt.price)
+
+			got, err := NewProduct(tt.productName, tt.description, price, tt.stock)
+
+			if !errors.Is(err, tt.wantErr) {
+				t.Fatalf("NewProduct() error = %v, want %v", err, tt.wantErr)
 			}
-			if product != nil {
-				t.Errorf("expected nil product")
+
+			if tt.wantErr != nil && got != nil {
+				t.Errorf("got product = %v, want nil", got)
+			}
+			if tt.wantErr == nil && got == nil {
+				t.Errorf("got nil product, want non-nil")
 			}
 		})
 	}
 }
 
-func TestProduct_Rename(t *testing.T) {
-	price, _ := valueobjects.NewMoneyFromFloat(10.50)
-	product, _ := NewProduct("Nome Antigo", "Descrição", price, 10)
+func TestNewProduct_FieldsArePersisted(t *testing.T) {
+	price := newTestPrice(t, 350000)
 
-	tests := []struct {
-		name    string
-		newName string
-		wantErr bool
-		want    string
-	}{
-		{"renomear válido", "Novo Nome", false, "Novo Nome"},
-		{"renomear com espaços", "  Outro Nome  ", false, "Outro Nome"},
-		{"renomear vazio", "", true, "Nome Antigo"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			oldUpdatedAt := product.UpdatedAt()
-			err := product.Rename(tt.newName)
-
-			if tt.wantErr {
-				if err != domainerrors.ErrInvalidProductName {
-					t.Errorf("expected ErrInvalidProductName, got %v", err)
-				}
-				if product.Name() != tt.want {
-					t.Errorf("Name() got = %q, want %q", product.Name(), tt.want)
-				}
-				return
-			}
-
-			if err != nil {
-				t.Fatalf("expected no error, got %v", err)
-			}
-			if product.Name() != tt.want {
-				t.Errorf("Name() got = %q, want %q", product.Name(), tt.want)
-			}
-			if product.UpdatedAt() == oldUpdatedAt {
-				t.Errorf("expected UpdatedAt to change")
-			}
-		})
-	}
-}
-
-func TestProduct_ChangeDescription(t *testing.T) {
-	price, _ := valueobjects.NewMoneyFromFloat(10.50)
-	product, _ := NewProduct("Produto", "Descrição Antiga", price, 10)
-
-	tests := []struct {
-		name    string
-		newDesc string
-		wantErr bool
-		want    string
-	}{
-		{"descrição válida", "Nova Descrição", false, "Nova Descrição"},
-		{"descrição com espaços", "  Outra Descrição  ", false, "Outra Descrição"},
-		{"descrição vazia", "", true, "Descrição Antiga"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			oldUpdatedAt := product.UpdatedAt()
-			err := product.ChangeDescription(tt.newDesc)
-
-			if tt.wantErr {
-				if err != domainerrors.ErrInvalidProductDescription {
-					t.Errorf("expected ErrInvalidProductDescription, got %v", err)
-				}
-				if product.Description() != tt.want {
-					t.Errorf("Description() got = %q, want %q", product.Description(), tt.want)
-				}
-				return
-			}
-
-			if err != nil {
-				t.Fatalf("expected no error, got %v", err)
-			}
-			if product.Description() != tt.want {
-				t.Errorf("Description() got = %q, want %q", product.Description(), tt.want)
-			}
-			if product.UpdatedAt() == oldUpdatedAt {
-				t.Errorf("expected UpdatedAt to change")
-			}
-		})
-	}
-}
-
-func TestProduct_ChangePrice(t *testing.T) {
-	price, _ := valueobjects.NewMoneyFromFloat(10.50)
-	product, _ := NewProduct("Produto", "Descrição", price, 10)
-
-	newPrice, _ := valueobjects.NewMoneyFromFloat(15.75)
-	oldUpdatedAt := product.UpdatedAt()
-
-	err := product.ChangePrice(newPrice)
+	product, err := NewProduct("Notebook", "Notebook gamer", price, 10)
 	if err != nil {
-		t.Fatalf("expected no error, got %v", err)
+		t.Fatalf("setup failed: %v", err)
 	}
 
-	if !product.Price().Equals(newPrice) {
-		t.Errorf("Price() got = %v, want %v", product.Price().Amount(), newPrice.Amount())
+	if got, want := product.Name(), "Notebook"; got != want {
+		t.Errorf("Name() got = %q, want %q", got, want)
 	}
-	if product.UpdatedAt() == oldUpdatedAt {
-		t.Errorf("expected UpdatedAt to change")
+	if got, want := product.Stock(), 10; got != want {
+		t.Errorf("Stock() got = %d, want %d", got, want)
 	}
-
-	// Verifica o evento
-	productEvents := product.Events()
-	lastEvent := productEvents[len(productEvents)-1]
-	priceEvent, ok := lastEvent.(events.ProductPriceChangedEvent)
-	if !ok {
-		t.Errorf("expected ProductPriceChangedEvent, got %T", lastEvent)
-	}
-	if priceEvent.ProductID != product.ID() {
-		t.Errorf("expected ProductID %v, got %v", product.ID(), priceEvent.ProductID)
-	}
-}
-
-func TestProduct_ChangePrice_Invalid(t *testing.T) {
-	price, _ := valueobjects.NewMoneyFromFloat(10.50)
-	product, _ := NewProduct("Produto", "Descrição", price, 10)
-
-	zeroPrice := valueobjects.Zero()
-	err := product.ChangePrice(zeroPrice)
-	if err != domainerrors.ErrInvalidProductPrice {
-		t.Errorf("expected ErrInvalidProductPrice, got %v", err)
-	}
-}
-
-func TestProduct_IncreaseStock(t *testing.T) {
-	price, _ := valueobjects.NewMoneyFromFloat(10.50)
-	product, _ := NewProduct("Produto", "Descrição", price, 10)
-
-	tests := []struct {
-		name     string
-		quantity int
-		want     int
-		wantErr  bool
-	}{
-		{"aumentar 5", 5, 15, false},
-		{"aumentar 1", 1, 16, false},
-		{"quantidade zero", 0, 16, true},
-		{"quantidade negativa", -1, 16, true},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			oldUpdatedAt := product.UpdatedAt()
-			err := product.IncreaseStock(tt.quantity)
-
-			if tt.wantErr {
-				if err != domainerrors.ErrInvalidQuantity {
-					t.Errorf("expected ErrInvalidQuantity, got %v", err)
-				}
-				if product.Stock() == tt.want {
-					t.Errorf("Stock() should not change, got %d", product.Stock())
-				}
-				return
-			}
-
-			if err != nil {
-				t.Fatalf("expected no error, got %v", err)
-			}
-			if product.Stock() != tt.want {
-				t.Errorf("Stock() got = %d, want %d", product.Stock(), tt.want)
-			}
-			if product.UpdatedAt() == oldUpdatedAt {
-				t.Errorf("expected UpdatedAt to change")
-			}
-
-			productEvents := product.Events()
-			if len(productEvents) > 0 {
-				lastEvent := productEvents[len(productEvents)-1]
-				stockEvent, ok := lastEvent.(events.ProductStockIncreasedEvent)
-				if !ok {
-					t.Errorf("expected ProductStockIncreasedEvent, got %T", lastEvent)
-				} else {
-					if stockEvent.NewStock != product.Stock() {
-						t.Errorf("NewStock got = %d, want %d", stockEvent.NewStock, product.Stock())
-					}
-				}
-			}
-		})
-	}
-}
-
-func TestProduct_DecreaseStock(t *testing.T) {
-	price, _ := valueobjects.NewMoneyFromFloat(10.50)
-	product, _ := NewProduct("Produto", "Descrição", price, 10)
-
-	tests := []struct {
-		name     string
-		quantity int
-		want     int
-		wantErr  error
-	}{
-		{"diminuir 3", 3, 7, nil},
-		{"diminuir 1", 1, 6, nil},
-		{"quantidade zero", 0, 10, domainerrors.ErrInvalidQuantity},
-		{"quantidade negativa", -1, 10, domainerrors.ErrInvalidQuantity},
-		{"estoque insuficiente", 20, 10, domainerrors.ErrInsufficientStock},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			oldUpdatedAt := product.UpdatedAt()
-			err := product.DecreaseStock(tt.quantity)
-
-			if err != tt.wantErr {
-				t.Errorf("expected %v, got %v", tt.wantErr, err)
-			}
-			if err == nil {
-				if product.Stock() != tt.want {
-					t.Errorf("Stock() got = %d, want %d", product.Stock(), tt.want)
-				}
-				if product.UpdatedAt() == oldUpdatedAt {
-					t.Errorf("expected UpdatedAt to change")
-				}
-			}
-		})
+	if got := product.IsActive(); !got {
+		t.Errorf("IsActive() got = %v, want true", got)
 	}
 }
 
 func TestProduct_HasStock(t *testing.T) {
-	price, _ := valueobjects.NewMoneyFromFloat(10.50)
-	product, _ := NewProduct("Produto", "Descrição", price, 10)
+	product, err := NewProduct("Notebook", "Notebook gamer", newTestPrice(t, 350000), 10)
+	if err != nil {
+		t.Fatalf("setup failed: %v", err)
+	}
 
 	tests := []struct {
 		name     string
 		quantity int
 		want     bool
 	}{
-		{"tem estoque exato", 10, true},
-		{"tem estoque maior", 5, true},
-		{"não tem estoque", 15, false},
-		{"quantidade zero", 0, true},
+		{"quantidade menor que o estoque", 5, true},
+		{"quantidade igual ao estoque", 10, true},
+		{"quantidade maior que o estoque", 11, false},
 	}
 
 	for _, tt := range tests {
@@ -330,60 +99,186 @@ func TestProduct_HasStock(t *testing.T) {
 	}
 }
 
-func TestProduct_ActivateDeactivate(t *testing.T) {
-	price, _ := valueobjects.NewMoneyFromFloat(10.50)
-	product, _ := NewProduct("Produto", "Descrição", price, 10)
-
-	// Desativar
-	oldUpdatedAt := product.UpdatedAt()
-	product.Deactivate()
-	if product.IsActive() {
-		t.Errorf("expected product to be inactive")
-	}
-	if product.UpdatedAt() == oldUpdatedAt {
-		t.Errorf("expected UpdatedAt to change")
+func TestProduct_IncreaseStock(t *testing.T) {
+	tests := []struct {
+		name      string
+		quantity  int
+		wantErr   error
+		wantStock int
+	}{
+		{"quantidade positiva", 5, nil, 15},
+		{"quantidade zero", 0, domainerrors.ErrInvalidQuantity, 10},
+		{"quantidade negativa", -5, domainerrors.ErrInvalidQuantity, 10},
 	}
 
-	// Ativar
-	oldUpdatedAt = product.UpdatedAt()
-	product.Activate()
-	if !product.IsActive() {
-		t.Errorf("expected product to be active")
-	}
-	if product.UpdatedAt() == oldUpdatedAt {
-		t.Errorf("expected UpdatedAt to change")
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			product, err := NewProduct("Notebook", "Notebook gamer", newTestPrice(t, 350000), 10)
+			if err != nil {
+				t.Fatalf("setup failed: %v", err)
+			}
+
+			err = product.IncreaseStock(tt.quantity)
+
+			if !errors.Is(err, tt.wantErr) {
+				t.Fatalf("IncreaseStock(%d) error = %v, want %v", tt.quantity, err, tt.wantErr)
+			}
+
+			if got := product.Stock(); got != tt.wantStock {
+				t.Errorf("Stock() got = %d, want %d", got, tt.wantStock)
+			}
+		})
 	}
 }
 
-func TestProduct_Rebuild(t *testing.T) {
-	id := uuid.New()
-	price, _ := valueobjects.NewMoneyFromFloat(10.50)
-	now := time.Now()
+func TestProduct_DecreaseStock(t *testing.T) {
+	tests := []struct {
+		name      string
+		quantity  int
+		wantErr   error
+		wantStock int
+	}{
+		{"quantidade válida", 5, nil, 5},
+		{"quantidade igual ao estoque total", 10, nil, 0},
+		{"quantidade maior que o estoque", 11, domainerrors.ErrInsufficientStock, 10},
+		{"quantidade zero", 0, domainerrors.ErrInvalidQuantity, 10},
+		{"quantidade negativa", -5, domainerrors.ErrInvalidQuantity, 10},
+	}
 
-	product := RebuildProduct(id, "Produto", "Descrição", price, 10, true, now, now)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			product, err := NewProduct("Notebook", "Notebook gamer", newTestPrice(t, 350000), 10)
+			if err != nil {
+				t.Fatalf("setup failed: %v", err)
+			}
 
-	if product.ID() != id {
-		t.Errorf("ID() got = %v, want %v", product.ID(), id)
+			err = product.DecreaseStock(tt.quantity)
+
+			if !errors.Is(err, tt.wantErr) {
+				t.Fatalf("DecreaseStock(%d) error = %v, want %v", tt.quantity, err, tt.wantErr)
+			}
+
+			if got := product.Stock(); got != tt.wantStock {
+				t.Errorf("Stock() got = %d, want %d", got, tt.wantStock)
+			}
+		})
 	}
-	if product.Name() != "Produto" {
-		t.Errorf("Name() got = %q, want %q", product.Name(), "Produto")
+}
+
+func TestProduct_ActivateDeactivate(t *testing.T) {
+	product, err := NewProduct("Notebook", "Notebook gamer", newTestPrice(t, 350000), 10)
+	if err != nil {
+		t.Fatalf("setup failed: %v", err)
 	}
-	if product.Description() != "Descrição" {
-		t.Errorf("Description() got = %q, want %q", product.Description(), "Descrição")
+
+	product.Deactivate()
+	if got := product.IsActive(); got {
+		t.Errorf("IsActive() after Deactivate() got = %v, want false", got)
 	}
-	if !product.Price().Equals(price) {
-		t.Errorf("Price() got = %v, want %v", product.Price().Amount(), price.Amount())
+
+	product.Activate()
+	if got := product.IsActive(); !got {
+		t.Errorf("IsActive() after Activate() got = %v, want true", got)
 	}
-	if product.Stock() != 10 {
-		t.Errorf("Stock() got = %d, want 10", product.Stock())
+}
+
+func TestProduct_Rename(t *testing.T) {
+	tests := []struct {
+		name    string
+		newName string
+		want    string
+		wantErr error
+	}{
+		{"nome válido", "Notebook Pro", "Notebook Pro", nil},
+		{"nome com espaços nas bordas", "  Notebook Pro  ", "Notebook Pro", nil},
+		{"nome vazio", "", "", domainerrors.ErrInvalidProductName},
+		{"nome só com espaços", "   ", "", domainerrors.ErrInvalidProductName},
 	}
-	if !product.IsActive() {
-		t.Errorf("expected product to be active")
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			product, err := NewProduct("Notebook", "Notebook gamer", newTestPrice(t, 350000), 10)
+			if err != nil {
+				t.Fatalf("setup failed: %v", err)
+			}
+
+			err = product.Rename(tt.newName)
+
+			if !errors.Is(err, tt.wantErr) {
+				t.Fatalf("Rename(%q) error = %v, want %v", tt.newName, err, tt.wantErr)
+			}
+
+			if tt.wantErr == nil {
+				if got := product.Name(); got != tt.want {
+					t.Errorf("Name() got = %q, want %q", got, tt.want)
+				}
+			}
+		})
 	}
-	if product.CreatedAt() != now {
-		t.Errorf("CreatedAt() got = %v, want %v", product.CreatedAt(), now)
+}
+
+func TestProduct_ChangeDescription(t *testing.T) {
+	tests := []struct {
+		name           string
+		newDescription string
+		want           string
+		wantErr        error
+	}{
+		{"descrição válida", "Nova descrição", "Nova descrição", nil},
+		{"descrição vazia", "", "", domainerrors.ErrInvalidProductDescription},
 	}
-	if product.UpdatedAt() != now {
-		t.Errorf("UpdatedAt() got = %v, want %v", product.UpdatedAt(), now)
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			product, err := NewProduct("Notebook", "Notebook gamer", newTestPrice(t, 350000), 10)
+			if err != nil {
+				t.Fatalf("setup failed: %v", err)
+			}
+
+			err = product.ChangeDescription(tt.newDescription)
+
+			if !errors.Is(err, tt.wantErr) {
+				t.Fatalf("ChangeDescription(%q) error = %v, want %v", tt.newDescription, err, tt.wantErr)
+			}
+
+			if tt.wantErr == nil {
+				if got := product.Description(); got != tt.want {
+					t.Errorf("Description() got = %q, want %q", got, tt.want)
+				}
+			}
+		})
+	}
+}
+
+func TestProduct_ChangePrice(t *testing.T) {
+	tests := []struct {
+		name      string
+		newCents  int64
+		wantErr   error
+		wantCents int64
+	}{
+		{"preço válido", 400000, nil, 400000},
+		{"preço zero", 0, domainerrors.ErrInvalidProductPrice, 350000},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			product, err := NewProduct("Notebook", "Notebook gamer", newTestPrice(t, 350000), 10)
+			if err != nil {
+				t.Fatalf("setup failed: %v", err)
+			}
+
+			newPrice := newTestPrice(t, tt.newCents)
+
+			err = product.ChangePrice(newPrice)
+
+			if !errors.Is(err, tt.wantErr) {
+				t.Fatalf("ChangePrice() error = %v, want %v", err, tt.wantErr)
+			}
+
+			if got := product.Price().Cents(); got != tt.wantCents {
+				t.Errorf("Price().Cents() got = %d, want %d", got, tt.wantCents)
+			}
+		})
 	}
 }

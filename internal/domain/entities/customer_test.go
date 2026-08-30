@@ -75,7 +75,6 @@ func TestNewCustomer_InvalidName(t *testing.T) {
 func TestCustomer_Rename(t *testing.T) {
 	email, _ := valueobjects.NewEmail("teste@teste.com")
 	cpf, _ := valueobjects.NewCPF("52998224725")
-	customer, _ := NewCustomer("Nome Antigo", email, cpf)
 
 	tests := []struct {
 		name    string
@@ -91,8 +90,13 @@ func TestCustomer_Rename(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			customer, err := NewCustomer("Nome Antigo", email, cpf)
+			if err != nil {
+				t.Fatalf("setup failed: %v", err)
+			}
+
 			oldUpdatedAt := customer.UpdatedAt()
-			err := customer.Rename(tt.newName)
+			err = customer.Rename(tt.newName)
 
 			if tt.wantErr {
 				if err != domainerrors.ErrEmptyName {

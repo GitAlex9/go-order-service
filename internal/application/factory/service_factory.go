@@ -8,10 +8,12 @@ import (
 
 	"github.com/GitAlex9/go-order-service/internal/application/commands"
 	"github.com/GitAlex9/go-order-service/internal/application/contracts"
+	appevents "github.com/GitAlex9/go-order-service/internal/application/events"
 	"github.com/GitAlex9/go-order-service/internal/application/queries"
 	"github.com/GitAlex9/go-order-service/internal/application/services"
 	repository "github.com/GitAlex9/go-order-service/internal/infrastructure/repositories/postgres"
 	"github.com/GitAlex9/go-order-service/internal/pkg/jwt"
+	"github.com/GitAlex9/go-order-service/internal/pkg/logger"
 )
 
 type ServiceFactory struct {
@@ -20,19 +22,22 @@ type ServiceFactory struct {
 	OrderService    contracts.OrderService
 	UserService     contracts.UserService
 	AuthService     contracts.AuthService
+	TokenManager    *jwt.TokenManager
 }
 
-func NewServiceFactory(pool *pgxpool.Pool) *ServiceFactory {
+func NewServiceFactory(pool *pgxpool.Pool, log logger.Logger) *ServiceFactory {
 	customerRepo := repository.NewCustomerRepository(pool)
 	productRepo := repository.NewProductRepository(pool)
 	orderRepo := repository.NewOrderRepository(pool)
 	userRepo := repository.NewUserRepository(pool)
 
+	uow := repository.NewUnitOfWork(pool, log)
+	dispatcher := appevents.NewDefaultDispatcher(log)
 	tokenManager := jwt.NewTokenManager(getJWTSecret(), 24*time.Hour)
 
 	customerService := services.NewCustomerService(
 		commands.NewCreateCustomerHandler(customerRepo),
-		commands.NewUpdateCustomerHandler(customerRepo),
+		commands.NewUpdateCustomerHandler(customerRepo, dispatcher),
 		commands.NewDeleteCustomerHandler(customerRepo),
 		queries.NewGetCustomerHandler(customerRepo),
 		queries.NewListCustomersHandler(customerRepo),
@@ -42,8 +47,8 @@ func NewServiceFactory(pool *pgxpool.Pool) *ServiceFactory {
 		commands.NewCreateProductHandler(productRepo),
 		commands.NewUpdateProductHandler(productRepo),
 		commands.NewDeleteProductHandler(productRepo),
-		commands.NewIncreaseStockHandler(productRepo),
-		commands.NewDecreaseStockHandler(productRepo),
+		commands.NewIncreaseStockHandler(productRepo, dispatcher),
+		commands.NewDecreaseStockHandler(productRepo, dispatcher),
 		commands.NewActivateProductHandler(productRepo),
 		commands.NewDeactivateProductHandler(productRepo),
 		queries.NewGetProductHandler(productRepo),
@@ -51,20 +56,20 @@ func NewServiceFactory(pool *pgxpool.Pool) *ServiceFactory {
 	)
 
 	orderService := services.NewOrderService(
-		commands.NewCreateOrderHandler(orderRepo, productRepo, customerRepo),
-		commands.NewPayOrderHandler(orderRepo),
-		commands.NewCancelOrderHandler(orderRepo, productRepo),
-		commands.NewDeleteOrderHandler(orderRepo),
+		commands.NewCreateOrderHandler(uow, dispatcher),
+		commands.NewPayOrderHandler(uow, dispatcher),
+		commands.NewCancelOrderHandler(uow, dispatcher),
+		commands.NewDeleteOrderHandler(uow),
 		queries.NewGetOrderHandler(orderRepo),
 		queries.NewListOrdersHandler(orderRepo),
 	)
 
 	userService := services.NewUserService(
 		commands.NewCreateUserHandler(userRepo),
-		commands.NewChangePasswordHandler(userRepo),
-		commands.NewChangeUserEmailHandler(userRepo),
-		commands.NewActivateUserHandler(userRepo),
-		commands.NewDeactivateUserHandler(userRepo),
+		commands.NewChangePasswordHandler(userRepo, dispatcher),
+		commands.NewChangeUserEmailHandler(userRepo, dispatcher),
+		commands.NewActivateUserHandler(userRepo, dispatcher),
+		commands.NewDeactivateUserHandler(userRepo, dispatcher),
 		queries.NewGetUserHandler(userRepo),
 		queries.NewListUsersHandler(userRepo),
 	)
@@ -79,13 +84,14 @@ func NewServiceFactory(pool *pgxpool.Pool) *ServiceFactory {
 		OrderService:    orderService,
 		UserService:     userService,
 		AuthService:     authService,
+		TokenManager:    tokenManager,
 	}
 }
 
 func getJWTSecret() string {
 	secret := os.Getenv("JWT_SECRET")
 	if secret == "" {
-		secret = "dev-secret-change-me" // estudo — em produção, sempre via variável de ambiente
+		secret = "dev-secret-change-me" // ⚠️ só pra estudo — em produção, sempre via variável de ambiente
 	}
 	return secret
 }

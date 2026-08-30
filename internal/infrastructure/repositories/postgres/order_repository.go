@@ -5,24 +5,23 @@ import (
 	"errors"
 	"time"
 
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+
 	"github.com/GitAlex9/go-order-service/internal/domain/entities"
 	domainerrors "github.com/GitAlex9/go-order-service/internal/domain/errors"
 	"github.com/GitAlex9/go-order-service/internal/domain/repositories"
-	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
-
 	"github.com/GitAlex9/go-order-service/internal/domain/valueobjects"
 )
 
 var _ repositories.OrderRepository = (*OrderRepository)(nil)
 
 type OrderRepository struct {
-	pool *pgxpool.Pool
+	db DBTX
 }
 
-func NewOrderRepository(pool *pgxpool.Pool) *OrderRepository {
-	return &OrderRepository{pool: pool}
+func NewOrderRepository(db DBTX) *OrderRepository {
+	return &OrderRepository{db: db}
 }
 
 type orderRow struct {
@@ -40,13 +39,11 @@ type orderItemRow struct {
 	Quantity       int
 }
 
+// Save grava o pedido e seus itens. NÃO abre transação própria e espera ser
+// chamado sempre dentro de um contexto já transacional, fornecido pelo
+// UnitOfWork. É isso que garante a atomicidade entre orders e order_items
+// (e, quando aplicável, entre Order e Product também).
 func (r *OrderRepository) Save(ctx context.Context, order *entities.Order) error {
-	tx, err := r.pool.Begin(ctx)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback(ctx) // no-op se já der Commit
-
 	const orderQuery = `
 		INSERT INTO orders (id, customer_id, status, created_at, updated_at)
 		VALUES ($1, $2, $3, $4, $5)
@@ -54,17 +51,14 @@ func (r *OrderRepository) Save(ctx context.Context, order *entities.Order) error
 			status = EXCLUDED.status,
 			updated_at = EXCLUDED.updated_at
 	`
-	_, err = tx.Exec(ctx, orderQuery,
+	_, err := r.db.Exec(ctx, orderQuery,
 		order.ID(), order.CustomerID(), order.Status().String(), order.CreatedAt(), order.UpdatedAt(),
 	)
 	if err != nil {
 		return err
 	}
 
-	// Estratégia simples: apaga os itens antigos e reinsere.
-	// Como Order é imutável em relação aos itens após criado (não vimos AddItem/RemoveItem
-	// nos casos de uso ainda), isso cobre bem o cenário atual sem lógica de diff.
-	if _, err := tx.Exec(ctx, `DELETE FROM order_items WHERE order_id = $1`, order.ID()); err != nil {
+	if _, err := r.db.Exec(ctx, `DELETE FROM order_items WHERE order_id = $1`, order.ID()); err != nil {
 		return err
 	}
 
@@ -73,7 +67,7 @@ func (r *OrderRepository) Save(ctx context.Context, order *entities.Order) error
 		VALUES ($1, $2, $3, $4, $5)
 	`
 	for _, item := range order.Items() {
-		_, err := tx.Exec(ctx, itemQuery,
+		_, err := r.db.Exec(ctx, itemQuery,
 			order.ID(), item.ProductID(), item.ProductName(), item.UnitPrice().Cents(), item.Quantity(),
 		)
 		if err != nil {
@@ -81,7 +75,7 @@ func (r *OrderRepository) Save(ctx context.Context, order *entities.Order) error
 		}
 	}
 
-	return tx.Commit(ctx)
+	return nil
 }
 
 func (r *OrderRepository) FindByID(ctx context.Context, id uuid.UUID) (*entities.Order, error) {
@@ -90,7 +84,7 @@ func (r *OrderRepository) FindByID(ctx context.Context, id uuid.UUID) (*entities
 		FROM orders WHERE id = $1
 	`
 	var or orderRow
-	err := r.pool.QueryRow(ctx, orderQuery, id).
+	err := r.db.QueryRow(ctx, orderQuery, id).
 		Scan(&or.ID, &or.CustomerID, &or.Status, &or.CreatedAt, &or.UpdatedAt)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -112,7 +106,7 @@ func (r *OrderRepository) findItemsByOrderID(ctx context.Context, orderID uuid.U
 		SELECT product_id, product_name, unit_price_cents, quantity
 		FROM order_items WHERE order_id = $1
 	`
-	rows, err := r.pool.Query(ctx, query, orderID)
+	rows, err := r.db.Query(ctx, query, orderID)
 	if err != nil {
 		return nil, err
 	}
@@ -150,7 +144,7 @@ func (r *OrderRepository) List(ctx context.Context, offset, limit int) ([]*entit
 }
 
 func (r *OrderRepository) queryOrders(ctx context.Context, query string, args ...any) ([]*entities.Order, error) {
-	rows, err := r.pool.Query(ctx, query, args...)
+	rows, err := r.db.Query(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -168,8 +162,6 @@ func (r *OrderRepository) queryOrders(ctx context.Context, query string, args ..
 		return nil, err
 	}
 
-	// N+1 intencional aqui por simplicidade (ok pro estudo/MVP).
-	// Numa otimização futura, dá pra buscar todos os itens de uma vez com WHERE order_id = ANY($1).
 	orders := make([]*entities.Order, 0, len(orderRows))
 	for _, or := range orderRows {
 		items, err := r.findItemsByOrderID(ctx, or.ID)
@@ -188,13 +180,13 @@ func (r *OrderRepository) queryOrders(ctx context.Context, query string, args ..
 func (r *OrderRepository) Exists(ctx context.Context, id uuid.UUID) (bool, error) {
 	const query = `SELECT EXISTS(SELECT 1 FROM orders WHERE id = $1)`
 	var exists bool
-	err := r.pool.QueryRow(ctx, query, id).Scan(&exists)
+	err := r.db.QueryRow(ctx, query, id).Scan(&exists)
 	return exists, err
 }
 
 func (r *OrderRepository) Delete(ctx context.Context, id uuid.UUID) error {
-	const query = `DELETE FROM orders WHERE id = $1` // order_items cai em cascata (ON DELETE CASCADE)
-	tag, err := r.pool.Exec(ctx, query, id)
+	const query = `DELETE FROM orders WHERE id = $1`
+	tag, err := r.db.Exec(ctx, query, id)
 	if err != nil {
 		return err
 	}

@@ -2,68 +2,80 @@ package postgres
 
 import (
 	"context"
+	"errors"
+	"strings"
 	"testing"
 
-	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/testcontainers/testcontainers-go/modules/postgres"
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
-func TestMigrator_Migrate(t *testing.T) {
-	ctx := context.Background()
+type mockExecer struct {
+	calls    []string
+	failWhen func(query string) error
+}
 
-	pgContainer, err := postgres.Run(ctx,
-		"postgres:16",
-		postgres.WithDatabase("testdb"),
-		postgres.WithUsername("testuser"),
-		postgres.WithPassword("testpass"),
-	)
-	if err != nil {
-		t.Skip("Skipping test: testcontainers not available")
-	}
-	defer func() {
-		if err := pgContainer.Terminate(ctx); err != nil {
-			t.Logf("Failed to terminate container: %v", err)
+func (m *mockExecer) Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error) {
+	m.calls = append(m.calls, sql)
+	if m.failWhen != nil {
+		if err := m.failWhen(sql); err != nil {
+			return pgconn.CommandTag{}, err
 		}
-	}()
-
-	connStr, err := pgContainer.ConnectionString(ctx)
-	if err != nil {
-		t.Fatalf("failed to get connection string: %v", err)
 	}
+	return pgconn.CommandTag{}, nil
+}
 
-	pool, err := pgxpool.New(ctx, connStr)
-	if err != nil {
-		t.Fatalf("failed to create pool: %v", err)
-	}
-	defer pool.Close()
+func TestMigrator_Migrate_Success(t *testing.T) {
+	mock := &mockExecer{}
+	migrator := NewMigrator(mock)
 
-	migrator := NewMigrator(pool)
 	if err := migrator.Migrate(); err != nil {
-		t.Fatalf("Migrate() error = %v", err)
+		t.Fatalf("Migrate() error = %v, want nil", err)
 	}
 
-	tables := []struct {
-		name        string
-		shouldExist bool
-	}{
-		{"users", true},
-		{"products", true},
-		{"customers", true},
-		{"orders", true},
-		{"order_items", true},
-		{"nonexistent", false},
+	wantOrder := []string{
+		"CREATE TABLE IF NOT EXISTS users",
+		"CREATE TABLE IF NOT EXISTS products",
+		"CREATE TABLE IF NOT EXISTS customers",
+		"CREATE TABLE IF NOT EXISTS orders",
+		"CREATE TABLE IF NOT EXISTS order_items",
 	}
 
-	for _, tt := range tables {
-		t.Run(tt.name, func(t *testing.T) {
-			var exists bool
-			query := "SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = $1)"
-			if err := pool.QueryRow(ctx, query, tt.name).Scan(&exists); err != nil {
-				t.Fatalf("failed to check table: %v", err)
+	if got, want := len(mock.calls), len(wantOrder); got != want {
+		t.Fatalf("Exec called %d times, want %d", got, want)
+	}
+
+	for i, want := range wantOrder {
+		if got := mock.calls[i]; !strings.Contains(got, want) {
+			t.Errorf("call %d got query containing %q, want it to contain %q", i, got, want)
+		}
+	}
+}
+
+func TestMigrator_Migrate_StopsOnFirstError(t *testing.T) {
+	wantErr := errors.New("connection failed")
+
+	mock := &mockExecer{
+		failWhen: func(query string) error {
+			if strings.Contains(query, "CREATE TABLE IF NOT EXISTS customers") {
+				return wantErr
 			}
-			if exists != tt.shouldExist {
-				t.Errorf("table %s exists = %v, want %v", tt.name, exists, tt.shouldExist)
-			}
-		})
+			return nil
+		},
+	}
+
+	migrator := NewMigrator(mock)
+	err := migrator.Migrate()
+
+	if err == nil {
+		t.Fatal("Migrate() error = nil, want an error")
+	}
+
+	wantMsg := "creating table customers: connection failed"
+	if got := err.Error(); got != wantMsg {
+		t.Errorf("Migrate() error = %q, want %q", got, wantMsg)
+	}
+
+	if got, want := len(mock.calls), 3; got != want {
+		t.Errorf("Exec called %d times, want %d (deve parar no primeiro erro)", got, want)
 	}
 }

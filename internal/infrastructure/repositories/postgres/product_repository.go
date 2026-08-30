@@ -12,17 +12,16 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 var _ repositories.ProductRepository = (*ProductRepository)(nil)
 
 type ProductRepository struct {
-	pool *pgxpool.Pool
+	db DBTX
 }
 
-func NewProductRepository(pool *pgxpool.Pool) *ProductRepository {
-	return &ProductRepository{pool: pool}
+func NewProductRepository(db DBTX) *ProductRepository {
+	return &ProductRepository{db: db}
 }
 
 type productRow struct {
@@ -48,7 +47,7 @@ func (r *ProductRepository) Save(ctx context.Context, product *entities.Product)
 			active = EXCLUDED.active,
 			updated_at = EXCLUDED.updated_at
 	`
-	_, err := r.pool.Exec(ctx, query,
+	_, err := r.db.Exec(ctx, query,
 		product.ID(),
 		product.Name(),
 		product.Description(),
@@ -69,7 +68,7 @@ func (r *ProductRepository) FindByID(ctx context.Context, id uuid.UUID) (*entiti
 		SELECT id, name, description, price_cents, stock, active, created_at, updated_at
 		FROM products WHERE id = $1
 	`
-	row := r.pool.QueryRow(ctx, query, id)
+	row := r.db.QueryRow(ctx, query, id)
 	return scanProduct(row)
 }
 
@@ -78,7 +77,7 @@ func (r *ProductRepository) List(ctx context.Context, offset, limit int) ([]*ent
 		SELECT id, name, description, price_cents, stock, active, created_at, updated_at
 		FROM products ORDER BY created_at DESC OFFSET $1 LIMIT $2
 	`
-	rows, err := r.pool.Query(ctx, query, offset, limit)
+	rows, err := r.db.Query(ctx, query, offset, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -102,13 +101,13 @@ func (r *ProductRepository) List(ctx context.Context, offset, limit int) ([]*ent
 func (r *ProductRepository) Exists(ctx context.Context, id uuid.UUID) (bool, error) {
 	const query = `SELECT EXISTS(SELECT 1 FROM products WHERE id = $1)`
 	var exists bool
-	err := r.pool.QueryRow(ctx, query, id).Scan(&exists)
+	err := r.db.QueryRow(ctx, query, id).Scan(&exists)
 	return exists, err
 }
 
 func (r *ProductRepository) Delete(ctx context.Context, id uuid.UUID) error {
 	const query = `DELETE FROM products WHERE id = $1`
-	tag, err := r.pool.Exec(ctx, query, id)
+	tag, err := r.db.Exec(ctx, query, id)
 	if err != nil {
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == "23503" {

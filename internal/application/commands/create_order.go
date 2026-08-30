@@ -5,26 +5,22 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/GitAlex9/go-order-service/internal/application/contracts"
 	"github.com/GitAlex9/go-order-service/internal/application/dto"
 	"github.com/GitAlex9/go-order-service/internal/application/mapper"
 	"github.com/GitAlex9/go-order-service/internal/application/validation"
 	"github.com/GitAlex9/go-order-service/internal/domain/entities"
 	domainerrors "github.com/GitAlex9/go-order-service/internal/domain/errors"
-	"github.com/GitAlex9/go-order-service/internal/domain/repositories"
+	domainevents "github.com/GitAlex9/go-order-service/internal/domain/events"
 )
 
 type CreateOrderHandler struct {
-	orderRepo    repositories.OrderRepository
-	productRepo  repositories.ProductRepository
-	customerRepo repositories.CustomerRepository
+	uow        contracts.UnitOfWork
+	dispatcher domainevents.Dispatcher
 }
 
-func NewCreateOrderHandler(
-	orderRepo repositories.OrderRepository,
-	productRepo repositories.ProductRepository,
-	customerRepo repositories.CustomerRepository,
-) *CreateOrderHandler {
-	return &CreateOrderHandler{orderRepo: orderRepo, productRepo: productRepo, customerRepo: customerRepo}
+func NewCreateOrderHandler(uow contracts.UnitOfWork, dispatcher domainevents.Dispatcher) *CreateOrderHandler {
+	return &CreateOrderHandler{uow: uow, dispatcher: dispatcher}
 }
 
 func (h *CreateOrderHandler) Handle(ctx context.Context, req dto.CreateOrderRequest) (*dto.OrderResponse, error) {
@@ -33,56 +29,63 @@ func (h *CreateOrderHandler) Handle(ctx context.Context, req dto.CreateOrderRequ
 		return nil, verr
 	}
 
-	if _, err := h.customerRepo.FindByID(ctx, customerID); err != nil {
-		return nil, err
-	}
+	var order *entities.Order
+	var productEvents []any
 
-	items := make([]entities.OrderItem, 0, len(req.Items))
-	reservedProducts := make([]struct {
-		product  *entities.Product
-		quantity int
-	}, 0, len(req.Items))
+	err := h.uow.Execute(ctx, func(repos contracts.Repositories) error {
+		if _, err := repos.Customer.FindByID(ctx, customerID); err != nil {
+			return err
+		}
 
-	for _, itemReq := range req.Items {
-		productID, _ := uuid.Parse(itemReq.ProductID)
+		items := make([]entities.OrderItem, 0, len(req.Items))
 
-		product, err := h.productRepo.FindByID(ctx, productID)
+		for _, itemReq := range req.Items {
+			productID, _ := uuid.Parse(itemReq.ProductID)
+
+			product, err := repos.Product.FindByID(ctx, productID)
+			if err != nil {
+				return err
+			}
+			if !product.IsActive() {
+				return domainerrors.ErrInactiveProduct
+			}
+			if err := product.DecreaseStock(itemReq.Quantity); err != nil {
+				return err
+			}
+
+			item, err := entities.NewOrderItem(product.ID(), product.Name(), product.Price(), itemReq.Quantity)
+			if err != nil {
+				return err
+			}
+			items = append(items, *item)
+
+			if err := repos.Product.Save(ctx, product); err != nil {
+				return err
+			}
+
+			productEvents = append(productEvents, product.Events()...)
+			product.ClearEvents()
+		}
+
+		newOrder, err := entities.NewOrder(customerID, items)
 		if err != nil {
-			return nil, err
-		}
-		if !product.IsActive() {
-			return nil, domainerrors.ErrInactiveProduct
-		}
-		if err := product.DecreaseStock(itemReq.Quantity); err != nil {
-			return nil, err
+			return err
 		}
 
-		item, err := entities.NewOrderItem(product.ID(), product.Name(), product.Price(), itemReq.Quantity)
-		if err != nil {
-			return nil, err
+		if err := repos.Order.Save(ctx, newOrder); err != nil {
+			return err
 		}
-		items = append(items, *item)
-		reservedProducts = append(reservedProducts, struct {
-			product  *entities.Product
-			quantity int
-		}{product, itemReq.Quantity})
-	}
 
-	order, err := entities.NewOrder(customerID, items)
+		order = newOrder
+		return nil
+	})
 	if err != nil {
 		return nil, err
 	}
 
-	if err := h.orderRepo.Save(ctx, order); err != nil {
-		return nil, err
-	}
-
-	//Será resolvida com UnitOfWork
-	for _, rp := range reservedProducts {
-		if err := h.productRepo.Save(ctx, rp.product); err != nil {
-			return nil, err
-		}
-	}
+	allEvents := append(order.Events(), productEvents...)
+	h.dispatcher.Dispatch(ctx, allEvents)
+	order.ClearEvents()
 
 	response := mapper.OrderToResponse(order)
 	return &response, nil

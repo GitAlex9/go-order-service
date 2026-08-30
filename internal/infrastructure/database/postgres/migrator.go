@@ -3,18 +3,14 @@ package postgres
 import (
 	"context"
 	"fmt"
-
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type Migrator struct {
-	pool *pgxpool.Pool
+	pool Execer
 }
 
-func NewMigrator(pool *pgxpool.Pool) *Migrator {
-	return &Migrator{
-		pool: pool,
-	}
+func NewMigrator(pool Execer) *Migrator {
+	return &Migrator{pool: pool}
 }
 
 func (m *Migrator) Migrate() error {

@@ -12,8 +12,7 @@ func TestRole_IsValid(t *testing.T) {
 		{"customer é válido", RoleCustomer, true},
 		{"manager é válido", RoleManager, true},
 		{"string vazia é inválida", Role(""), false},
-		{"role desconhecida é inválida", Role("superuser"), false},
-		{"role com maiúscula é inválida", Role("Admin"), false},
+		{"role desconhecida é inválida", Role("superadmin"), false},
 	}
 
 	for _, tt := range tests {

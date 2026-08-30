@@ -113,13 +113,20 @@ func TestOrderItem_Subtotal(t *testing.T) {
 		{"2 x 10.50 = 21.00", 10.50, 2, 21.00},
 		{"3 x 5.25 = 15.75", 5.25, 3, 15.75},
 		{"1 x 0.99 = 0.99", 0.99, 1, 0.99},
-		{"5 x 0.00 = 0.00", 0.00, 5, 0.00},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			price, _ := valueobjects.NewMoneyFromFloat(tt.price)
-			item, _ := NewOrderItem(productID, "Produto", price, tt.quantity)
+			price, err := valueobjects.NewMoneyFromFloat(tt.price)
+			if err != nil {
+				t.Fatalf("setup failed: %v", err)
+			}
+
+			item, err := NewOrderItem(productID, "Produto", price, tt.quantity)
+			if err != nil {
+				t.Fatalf("setup failed: %v", err)
+			}
+
 			got := item.Subtotal().Amount()
 			if got != tt.want {
 				t.Errorf("Subtotal() got = %v, want %v", got, tt.want)

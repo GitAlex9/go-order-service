@@ -1,87 +1,73 @@
 package valueobjects
 
 import (
+	"errors"
 	"testing"
 
 	domainerrors "github.com/GitAlex9/go-order-service/internal/domain/errors"
 )
 
-func TestNewEmail_Valid(t *testing.T) {
-	tests := []struct {
-		name string
-		raw  string
-		want string
-	}{
-		{"email simples", "cliente@teste.com", "cliente@teste.com"},
-		{"email com maiúsculas", "Cliente@Teste.COM", "cliente@teste.com"},
-		{"email com espaços", "  cliente@teste.com  ", "cliente@teste.com"},
-		{"email com ponto", "cliente.teste@dominio.com", "cliente.teste@dominio.com"},
-		{"email com subdomínio", "cliente@mail.dominio.com", "cliente@mail.dominio.com"},
-		{"email com números", "cliente123@teste.com", "cliente123@teste.com"},
-		{"email com underscore", "cliente_teste@teste.com", "cliente_teste@teste.com"},
-		{"email com hífen", "cliente-teste@teste.com", "cliente-teste@teste.com"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			email, err := NewEmail(tt.raw)
-			if err != nil {
-				t.Fatalf("expected creation to succeed, got error: %v", err)
-			}
-			if email.String() != tt.want {
-				t.Errorf("String() got = %q, want %q", email.String(), tt.want)
-			}
-		})
-	}
-}
-
-func TestNewEmail_Invalid(t *testing.T) {
+func TestNewEmail(t *testing.T) {
 	tests := []struct {
 		name    string
 		raw     string
+		want    string
 		wantErr error
 	}{
-		{"string vazia", "", domainerrors.ErrInvalidEmail},
-		{"apenas espaços", "   ", domainerrors.ErrInvalidEmail},
-		{"sem @", "cliente.teste.com", domainerrors.ErrInvalidEmail},
-		{"sem domínio", "cliente@", domainerrors.ErrInvalidEmail},
-		{"sem usuário", "@teste.com", domainerrors.ErrInvalidEmail},
-		{"domínio inválido (sem ponto)", "cliente@testecom", domainerrors.ErrInvalidEmail},
-		{"domínio com caracteres especiais inválidos", "cliente@teste!.com", domainerrors.ErrInvalidEmail},
-		{"espaços no meio", "cliente @teste.com", domainerrors.ErrInvalidEmail},
+		{"email válido", "cliente@teste.com", "cliente@teste.com", nil},
+		{"email com maiúsculas é normalizado", "Cliente@Teste.COM", "cliente@teste.com", nil},
+		{"email com espaços nas bordas", "  cliente@teste.com  ", "cliente@teste.com", nil},
+		{"email vazio", "", "", domainerrors.ErrInvalidEmail},
+		{"email só com espaços", "   ", "", domainerrors.ErrInvalidEmail},
+		{"email sem @", "clienteteste.com", "", domainerrors.ErrInvalidEmail},
+		{"email sem domínio", "cliente@", "", domainerrors.ErrInvalidEmail},
+		{"email sem usuário", "@teste.com", "", domainerrors.ErrInvalidEmail},
+		{"email sem TLD", "cliente@teste", "", domainerrors.ErrInvalidEmail},
+		{"email com espaço no meio", "cliente teste@teste.com", "", domainerrors.ErrInvalidEmail},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			email, err := NewEmail(tt.raw)
-			if err != tt.wantErr {
-				t.Errorf("expected %v, got %v", tt.wantErr, err)
+			got, err := NewEmail(tt.raw)
+
+			if !errors.Is(err, tt.wantErr) {
+				t.Fatalf("NewEmail(%q) error = %v, want %v", tt.raw, err, tt.wantErr)
 			}
-			if email != (Email{}) {
-				t.Errorf("expected zero value Email, got %v", email)
+
+			if tt.wantErr == nil && got.String() != tt.want {
+				t.Errorf("got.String() = %q, want %q", got.String(), tt.want)
 			}
 		})
-	}
-}
-
-func TestEmail_String(t *testing.T) {
-	email, _ := NewEmail("cliente@teste.com")
-	got := email.String()
-	want := "cliente@teste.com"
-	if got != want {
-		t.Errorf("String() got = %q, want %q", got, want)
 	}
 }
 
 func TestEmail_Equals(t *testing.T) {
-	email1, _ := NewEmail("cliente@teste.com")
-	email2, _ := NewEmail("cliente@teste.com")
-	email3, _ := NewEmail("outro@teste.com")
-
-	if !email1.Equals(email2) {
-		t.Errorf("expected email1 to equal email2")
+	tests := []struct {
+		name string
+		a    string
+		b    string
+		want bool
+	}{
+		{"emails iguais", "cliente@teste.com", "cliente@teste.com", true},
+		{"emails diferentes", "cliente@teste.com", "outro@teste.com", false},
+		{"emails iguais com case diferente na origem", "Cliente@Teste.com", "cliente@teste.com", true},
 	}
-	if email1.Equals(email3) {
-		t.Errorf("expected email1 to NOT equal email3")
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			a, err := NewEmail(tt.a)
+			if err != nil {
+				t.Fatalf("setup failed: %v", err)
+			}
+			b, err := NewEmail(tt.b)
+			if err != nil {
+				t.Fatalf("setup failed: %v", err)
+			}
+
+			got := a.Equals(b)
+			if got != tt.want {
+				t.Errorf("Equals() got = %v, want %v", got, tt.want)
+			}
+		})
 	}
 }

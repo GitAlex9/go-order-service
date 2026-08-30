@@ -4,25 +4,16 @@ import (
 	"context"
 	"fmt"
 	"os"
-
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// Resetter existe apenas para uso em desenvolvimento/testes.
-// APAGAR ESTA STRUCT SE FOR USAR EM UM PROJETO REAL, CORRE O RISCO DE APAGAR TODO O BANCO.
 type Resetter struct {
-	pool *pgxpool.Pool
+	pool Execer
 }
 
-func NewResetter(pool *pgxpool.Pool) *Resetter {
+func NewResetter(pool Execer) *Resetter {
 	return &Resetter{pool: pool}
 }
 
-// Reset apaga todas as tabelas da aplicação, na ordem inversa da criação
-// (respeitando as foreign keys) e recria a partir do Migrator, se fornecido.
-//
-// Trava de segurança: só executa se a variável de ambiente APP_ENV
-// estiver explicitamente definida como "development" ou "test".
 func (r *Resetter) Reset(ctx context.Context) error {
 	env := os.Getenv("APP_ENV")
 	if env != "development" && env != "test" {
@@ -30,9 +21,9 @@ func (r *Resetter) Reset(ctx context.Context) error {
 	}
 
 	tables := []string{
-		"order_items", // depende de orders e products
-		"orders",      // depende de customers
-		"customers",   // depende de users
+		"order_items",
+		"orders",
+		"customers",
 		"products",
 		"users",
 	}
